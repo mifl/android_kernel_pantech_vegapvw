@@ -275,7 +275,10 @@ static int msm_server_control(struct msm_cam_server_dev *server_dev,
 	struct msm_ctrl_cmd *ctrlcmd;
 	struct msm_device_queue *queue =
 		&server_dev->server_queue[out->queue_idx].ctrl_q;
+
+#if !defined(CONFIG_MACH_MSM8960_SIRIUSLTE) || !defined(CONFIG_MACH_MSM8960_MAGNUS)
 	struct msm_cam_v4l2_device *pcam = server_dev->pcam_active;
+#endif
 
 	struct v4l2_event v4l2_evt;
 	struct msm_isp_event_ctrl *isp_event;
@@ -348,7 +351,10 @@ static int msm_server_control(struct msm_cam_server_dev *server_dev,
 			if (++server_dev->server_evt_id == 0)
 				server_dev->server_evt_id++;
 			pr_err("%s: wait_event error %d\n", __func__, rc);
+
+#if !defined(CONFIG_MACH_MSM8960_SIRIUSLTE) || !defined(CONFIG_MACH_MSM8960_MAGNUS)
 			msm_cam_stop_hardware(pcam);
+#endif
 			return rc;
 		}
 	}
@@ -1078,6 +1084,7 @@ static int msm_camera_v4l2_qbuf(struct file *f, void *pctx,
 		/* Reject the buffer if planes array was not allocated */
 		if (pb->m.planes == NULL) {
 			pr_err("%s Planes array is null\n", __func__);
+			mutex_unlock(&pcam_inst->inst_lock);//charley2
 			return -EINVAL;
 		}
 		for (i = 0; i < pcam_inst->plane_info.num_planes; i++) {

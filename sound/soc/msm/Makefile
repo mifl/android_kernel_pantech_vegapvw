@@ -62,7 +62,7 @@ obj-$(CONFIG_SND_SOC_VOICE) += msm-pcm-voice.o msm-pcm-voip.o
 snd-soc-qdsp6-objs += msm-pcm-lpa.o msm-pcm-afe.o
 obj-$(CONFIG_SND_SOC_QDSP6) += snd-soc-qdsp6.o
 
-snd-soc-msm8960-objs := msm8960.o apq8064.o msm8930.o mpq8064.o
+snd-soc-msm8960-objs := msm8960.o apq8064.o # msm8930.o mpq8064.o
 obj-$(CONFIG_SND_SOC_MSM8960) += snd-soc-msm8960.o
 
 # Generic MSM drivers
@@ -71,6 +71,10 @@ obj-$(CONFIG_SND_SOC_MSM_HOSTLESS_PCM) += snd-soc-hostless-pcm.o
 
 snd-soc-msm8660-apq-objs := msm8660-apq-wm8903.o
 obj-$(CONFIG_SND_SOC_MSM8660_APQ) += snd-soc-msm8660-apq.o
+
+ifeq ($(PANTECH_CARRIER_NAME),KDDI)
+obj-y += sky_snd_ak7811abb.o
+endif
 
 # for MDM 9615 sound card driver
 snd-soc-mdm9615-objs := mdm9615.o

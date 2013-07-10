@@ -11,6 +11,8 @@
  * GNU General Public License for more details.
  */
 
+#define PANTECH_ACPUPVS
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -37,6 +39,25 @@
 #include "acpuclock.h"
 #include "acpuclock-krait.h"
 #include "avs.h"
+
+#if defined(CONFIG_PANTECH_PMIC)
+#include <mach/msm_smsm.h>
+#endif
+
+#ifdef PANTECH_ACPUPVS
+#include <linux/proc_fs.h>
+
+char acpupvs[30] = {0,}; //p14527 : added for store ACPU PVS value
+struct proc_dir_entry *acpu_pvs_info; //p14527 : added for using proc file system
+
+#ifdef F_PANTECH_SECBOOT
+#define STE_EFUSE_OFFSET   0x0310
+/* PTE EFUSE register offset. */
+#define PTE_EFUSE_OFFSET		0xC0
+#endif
+#endif
+
+#define PANTECH_PVS_FIX_FOR_PREMIAV_ONLY
 
 /* MUX source selects. */
 #define PRI_SRC_SEL_SEC_SRC	0
@@ -728,6 +749,50 @@ static bool __cpuinit speed_equal(const struct core_speed *s1,
 		s1->pll_l_val == s2->pll_l_val);
 }
 
+#if defined(CONFIG_PANTECH_PMIC)
+static oem_pm_smem_vendor1_data_type *smem_vendor1_ptr = NULL;
+
+static int oem_smem_boot_mode_read(void)
+{
+	if (!smem_vendor1_ptr)
+		return 1;
+
+	return smem_vendor1_ptr->power_on_mode;
+}
+
+static int oem_vendor_smem_init(void)
+{
+	int len = 0;
+
+	smem_vendor1_ptr = (oem_pm_smem_vendor1_data_type*)smem_alloc(SMEM_ID_VENDOR1, sizeof(oem_pm_smem_vendor1_data_type));
+
+	return len;
+}
+#endif
+
+#if defined(T_VEGAPVW)
+static u32 get_msm_board_revision(void)
+{
+
+	void __iomem *qfprom_base;
+	u32 msm_revision, pte_efuse = 0;
+  
+	qfprom_base = ioremap(0x007060e0, SZ_256);
+
+  if (qfprom_base) {
+		pte_efuse = readl_relaxed(qfprom_base + 0);
+	  msm_revision = (pte_efuse >> 28) & 0xF;
+  } else {
+    msm_revision = 0;
+  }
+  
+  iounmap(qfprom_base);
+
+  return msm_revision;
+
+}
+#endif
+
 static const struct acpu_level __cpuinit *find_cur_acpu_level(int cpu)
 {
 	struct scalable *sc = &drv.scalable[cpu];
@@ -735,9 +800,22 @@ static const struct acpu_level __cpuinit *find_cur_acpu_level(int cpu)
 	struct core_speed cur_speed;
 
 	fill_cur_core_speed(&cur_speed, sc);
+#if defined(CONFIG_PANTECH_PMIC)
+	for (l = drv.acpu_freq_tbl; l->speed.khz != 0; l++){
+		if (oem_smem_boot_mode_read()){
+			if (speed_equal(&l->speed, &cur_speed))
+				return l;			
+		}
+		else{
+			return NULL;
+		}
+	}
+#else
 	for (l = drv.acpu_freq_tbl; l->speed.khz != 0; l++)
 		if (speed_equal(&l->speed, &cur_speed))
 			return l;
+#endif		
+		
 	return NULL;
 }
 
@@ -791,6 +869,11 @@ static int __cpuinit per_cpu_init(int cpu)
 			acpu_level->speed.khz);
 	}
 
+#if defined(CONFIG_PANTECH_PMIC)
+	dev_err(drv.dev, "CPU%d is running at %lu KHz\n", cpu,
+		acpu_level->speed.khz);
+#endif
+
 	ret = regulator_init(sc, acpu_level);
 	if (ret)
 		goto err_regulators;
@@ -840,7 +923,23 @@ static void __init cpufreq_table_init(void)
 	for_each_possible_cpu(cpu) {
 		int i, freq_cnt = 0;
 		/* Construct the freq_table tables from acpu_freq_tbl. */
+    #if defined(CONFIG_PANTECH_PMIC)
+    int chargerfreq;
 		for (i = 0; drv.acpu_freq_tbl[i].speed.khz != 0
+				&& freq_cnt < ARRAY_SIZE(*freq_table); i++) {
+            chargerfreq = 0; 
+
+        if (oem_smem_boot_mode_read() || drv.acpu_freq_tbl[i].speed.khz <= 384000) 
+            chargerfreq = 1; 
+        if (drv.acpu_freq_tbl[i].use_for_scaling && chargerfreq) { 
+				freq_table[cpu][freq_cnt].index = freq_cnt;
+				freq_table[cpu][freq_cnt].frequency
+					= drv.acpu_freq_tbl[i].speed.khz;
+				freq_cnt++;
+			}
+		}
+    #else
+    for (i = 0; drv.acpu_freq_tbl[i].speed.khz != 0
 				&& freq_cnt < ARRAY_SIZE(*freq_table); i++) {
 			if (drv.acpu_freq_tbl[i].use_for_scaling) {
 				freq_table[cpu][freq_cnt].index = freq_cnt;
@@ -849,6 +948,7 @@ static void __init cpufreq_table_init(void)
 				freq_cnt++;
 			}
 		}
+    #endif
 		/* freq_table not big enough to store all usable freqs. */
 		BUG_ON(drv.acpu_freq_tbl[i].speed.khz != 0);
 
@@ -929,11 +1029,33 @@ static void krait_apply_vmin(struct acpu_level *tbl)
 	}
 }
 
+#ifdef PANTECH_PVS_FIX_FOR_PREMIAV_ONLY
+extern int get_hw_revision (void);
+#endif
+
 static int __init select_freq_plan(u32 pte_efuse_phys)
 {
+#ifdef PANTECH_PVS_FIX_FOR_PREMIAV_ONLY
+	int hw_rev = 0;
+	char str_cpuid[13]={0}; 	//p14527: add cpuid
+#endif
 	void __iomem *pte_efuse;
 	u32 pte_efuse_val, pvs, tbl_idx;
-	char *pvs_names[] = { "Slow", "Nominal", "Fast", "Faster", "Unknown" };
+	char *pvs_names[] = { "Slow", "Nominal", "Fast", "PDN_Slow", "PDL_Nominal", "PDN_Fast", "Faster", "Unknown" };
+
+#ifdef PANTECH_ACPUPVS
+  #ifdef F_PANTECH_SECBOOT
+    void __iomem *ste_efuse;
+	uint32_t sec =0 ;
+    u32 ste_efuse_val = 0; 
+  #endif
+	memset(acpupvs, 0x0, sizeof(acpupvs));
+#endif
+
+#ifdef PANTECH_PVS_FIX_FOR_PREMIAV_ONLY
+	hw_rev = get_hw_revision();
+	pr_info("ACPU PVS: REV %d\n", hw_rev);
+#endif
 
 	pte_efuse = ioremap(pte_efuse_phys, 4);
 	/* Select frequency tables. */
@@ -941,27 +1063,180 @@ static int __init select_freq_plan(u32 pte_efuse_phys)
 		pte_efuse_val = readl_relaxed(pte_efuse);
 		pvs = (pte_efuse_val >> 10) & 0x7;
 		iounmap(pte_efuse);
+
+#ifdef PANTECH_ACPUPVS
+  #ifdef F_PANTECH_SECBOOT
+    ste_efuse = ioremap(pte_efuse_phys+(STE_EFUSE_OFFSET-PTE_EFUSE_OFFSET), 4);
+
+    if (ste_efuse)
+  		ste_efuse_val= readl_relaxed(ste_efuse);
+
+		sec = (ste_efuse_val >> 5) & 0x1;
+
+    iounmap(ste_efuse);
+  #endif
+#endif
+
+		iounmap(pte_efuse);
+    
 		if (pvs == 0x7)
 			pvs = (pte_efuse_val >> 13) & 0x7;
 
 		switch (pvs) {
 		case 0x0:
 		case 0x7:
-			tbl_idx = PVS_SLOW;
+#ifdef PANTECH_PVS_FIX_FOR_PREMIAV_ONLY
+			if ((hw_rev >= 4) && (hw_rev <= 6)) {
+				pr_info("ACPU PVS: Slow (Use PDN)\n");
+				tbl_idx = PDN_SLOW;
+			} else {
+				pr_info("ACPU PVS: Slow (Use SLOW)\n");
+				tbl_idx = PVS_SLOW;
+            }
+#else
+            pr_info("ACPU PVS: Slow\n");
+            tbl_idx = PVS_SLOW;
+#endif
+
+#ifdef PANTECH_ACPUPVS
+  #ifdef F_PANTECH_SECBOOT
+          if(sec)
+			 //acpupvs = "Slow  SEC ";
+			 memcpy(acpupvs, "Slow  SEC ", 10);
+          else 
+			 //acpupvs = "Slow   NSEC";
+			 memcpy(acpupvs, "Slow NSEC ", 10);
+  #else
+			//acpupvs = "Slow   ";
+			memcpy(acpupvs, "Slow ", 5);
+  #endif
+#endif
 			break;
+
 		case 0x1:
+#ifdef PANTECH_PVS_FIX_FOR_PREMIAV_ONLY
+			if ((hw_rev >= 4) && (hw_rev <= 6)) {
+				pr_info("ACPU PVS: Nominal (Use PDN)\n");
+				tbl_idx = PDN_NOMINAL;
+			} else {
+				pr_info("ACPU PVS: Nominal (Use NOMINAL)\n");
+				tbl_idx = PVS_NOMINAL;
+            }
+#else
+            pr_info("ACPU PVS: Nominal\n");
 			tbl_idx = PVS_NOMINAL;
+#endif
+
+#ifdef PANTECH_ACPUPVS
+  #ifdef F_PANTECH_SECBOOT
+          if(sec)
+			//acpupvs = "Nominal  SEC";
+			memcpy(acpupvs, "Nominal SEC", 11);
+          else 
+			//acpupvs = "Nominal  NSEC";
+			memcpy(acpupvs, "Nominal NSEC", 12);
+  #else
+			//acpupvs = "Nominal";	  
+			memcpy(acpupvs, "Nominal ", 8);
+  #endif
+#endif
 			break;
+
 		case 0x3:
+#ifdef PANTECH_PVS_FIX_FOR_PREMIAV_ONLY
+            if ((hw_rev >= 4) && (hw_rev <= 6)) {
+                pr_info("ACPU PVS: Fast (Use PDN)\n");
+				tbl_idx = PDN_FAST;
+            } else {
+                pr_info("ACPU PVS: Fast (Use FAST)\n");
+                tbl_idx = PVS_FAST;
+            }
+#else
+            pr_info("ACPU PVS: Fast\n");
 			tbl_idx = PVS_FAST;
+#endif
+
+#ifdef PANTECH_ACPUPVS
+  #ifdef F_PANTECH_SECBOOT
+          if(sec)
+			//acpupvs = "Fast  SEC";
+			memcpy(acpupvs, "Fast SEC", 8);
+          else 
+			//acpupvs = "Fast NSEC";
+			memcpy(acpupvs, "Fast NSEC", 9);
+  #else
+			//acpupvs = "Fast   ";	  
+			memcpy(acpupvs, "Fast ", 5);
+  #endif
+#endif
 			break;
+
 		case 0x4:
 			tbl_idx = PVS_FASTER;
+#ifdef PANTECH_ACPUPVS
+  #ifdef F_PANTECH_SECBOOT
+          if(sec)
+			//acpupvs = "Fast  SEC";
+			memcpy(acpupvs, "Faster SEC", 8);
+          else 
+			//acpupvs = "Fast NSEC";
+			memcpy(acpupvs, "Faster NSEC", 9);
+  #else
+			//acpupvs = "Fast   ";	  
+			memcpy(acpupvs, "Faster ", 5);
+  #endif
+#endif
 			break;
+
 		default:
 			tbl_idx = PVS_UNKNOWN;
+#ifdef PANTECH_ACPUPVS
+			//acpupvs = "Default";
+			memcpy(acpupvs, "Default ", 8);
+#endif      
 			break;
+
 		}
+
+#ifdef PANTECH_ACPUPVS  
+#if defined(T_VEGAPVW) 
+  // <!-- lsi@ls1 : PANTECH : check msm version
+  if(cpu_is_msm8960())
+  {
+//    if (krait_needs_vmin())
+    u32 board_revsion = 0;
+    board_revsion = get_msm_board_revision();
+
+    if (board_revsion == 0x7)
+    {
+      strcat(acpupvs, " v3.2.1");
+    }
+    else if (board_revsion > 0x7)
+    {
+      strcat(acpupvs, " over_v3.2.1");
+    }
+    else if (board_revsion == 0x4)
+    {
+      strcat(acpupvs, " v3.1");
+    }
+    else if (board_revsion < 0x4)
+    {
+      strcat(acpupvs, " under_v3.1");
+    }
+    else
+    {
+      strcat(acpupvs, " undef ver");
+    }
+	//p14527: add cpuid
+	sprintf(str_cpuid, " 0x%X", read_cpuid_id());
+	strcat(acpupvs, str_cpuid); 	
+  }
+  // --!>
+#else // remove get msm revision
+    strcat(acpupvs, "  ");
+#endif
+#endif		
+
 	} else {
 		tbl_idx = PVS_UNKNOWN;
 		dev_err(drv.dev, "Unable to map QFPROM base\n");
@@ -1054,15 +1329,50 @@ static void __init hw_init(void)
 	bus_init(l2_level);
 }
 
+#ifdef PANTECH_ACPUPVS
+//p14527 20120213
+static int read_proc_acpu_pvs_info
+	(char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	int len = 0;
+
+	len  = sprintf(page, "ACPU PVS : %s", acpupvs);
+
+//	printk(KERN_INFO "[P14527] ACPU PVS : %s\n", acpupvs);
+	return len;
+}
+//p14527 20120213
+static int write_proc_acpu_pvs_info
+  (struct file *file, const char *buffer, unsigned long count, void *data)
+{
+
+	return 0;
+}
+#endif
+
 int __init acpuclk_krait_init(struct device *dev,
 			      const struct acpuclk_krait_params *params)
 {
+#if defined(CONFIG_PANTECH_PMIC)
+	oem_vendor_smem_init();
+#endif	
+
 	drv_data_init(dev, params);
 	hw_init();
 
 	cpufreq_table_init();
 	acpuclk_register(&acpuclk_krait_data);
 	register_hotcpu_notifier(&acpuclk_cpu_notifier);
+
+  #ifdef PANTECH_ACPUPVS
+	// p14527	
+	acpu_pvs_info = create_proc_entry("acpu_pvs_info", S_IRUGO | S_IWUSR | S_IWGRP, NULL);
+	if (acpu_pvs_info) {
+		acpu_pvs_info->read_proc  = read_proc_acpu_pvs_info;
+		acpu_pvs_info->write_proc = write_proc_acpu_pvs_info;
+		acpu_pvs_info->data       = NULL;
+	}
+  #endif
 
 	return 0;
 }

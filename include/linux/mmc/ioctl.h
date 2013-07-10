@@ -1,8 +1,10 @@
 #ifndef LINUX_MMC_IOCTL_H
 #define LINUX_MMC_IOCTL_H
-
-#include <linux/types.h>
-
+#if 0 /* Not use at PremiaV */
+// [[[[[[[[[ added by P10458, 2012-04-05
+#include "card.h"
+// ]]]]]]]]] added by P10458, 2012-04-05
+#endif
 struct mmc_ioc_cmd {
 	/* Implies direction of data.  true = write, false = read */
 	int write_flag;
@@ -46,6 +48,19 @@ struct mmc_ioc_cmd {
 #define mmc_ioc_cmd_set_data(ic, ptr) ic.data_ptr = (__u64)(unsigned long) ptr
 
 #define MMC_IOC_CMD _IOWR(MMC_BLOCK_MAJOR, 0, struct mmc_ioc_cmd)
+
+#if 0 /* Not use at PremiaV */
+// [[[[[[[[[[[[[[[ added by P10458, 2012-04-05
+struct mmc_ioc_cmd_extend {
+	struct sd_ssr ssr;							/* SD_STATUS */
+	u32 ccs;									/* if ccs = 0, SDSC, otherwise if ccs = 1, SDHC or SDXC */
+	u32 capacity_of_protected_area_in_byte;		/* the capacity of procted area, see the "struct sd_ssr" */
+	u32 card_status;							/* card status */
+	u32 capacity;								/* user data area capacity (not include the protected area) KB unit */
+};
+#define MMC_IOC_CMD_EXTEND _IOR(MMC_BLOCK_MAJOR, 1, struct mmc_ioc_cmd_extend)
+// ]]]]]]]]]]]]]]] added by P10458, 2012-04-05
+#endif
 
 /*
  * Since this ioctl is only meant to enhance (and not replace) normal access

@@ -215,6 +215,9 @@ static int mmc_decode_scr(struct mmc_card *card)
 static int mmc_read_ssr(struct mmc_card *card)
 {
 	unsigned int au, es, et, eo;
+#if 0 /* Not use in PremiaV */
+	unsigned int size_of_protected_area, secure_mode;	// added by P10458 for OneSeg's CPRM
+#endif
 	int err, i;
 	u32 *ssr;
 
@@ -239,6 +242,17 @@ static int mmc_read_ssr(struct mmc_card *card)
 	for (i = 0; i < 16; i++)
 		ssr[i] = be32_to_cpu(ssr[i]);
 
+#if 0 /* Not use in PremiaV */
+	// [[[[[[[[[[[ added by P10458 for OneSeg's CPRM
+	size_of_protected_area = UNSTUFF_BITS(ssr, 448 - 384, 32);
+	//printk("size_of_protected_area=[0x%x]\n", size_of_protected_area);
+	card->ssr.size_of_protected_area = size_of_protected_area;
+
+	secure_mode = UNSTUFF_BITS(ssr, 509 - 384, 1);
+	//printk("secure_mode=[0x%x]\n", secure_mode);
+	card->ssr.secure_mode = secure_mode;
+	// ]]]]]]]]]]] added by P10458 for OneSeg's CPRM
+#endif
 	/*
 	 * UNSTUFF_BITS only works with four u32s so we have to offset the
 	 * bitfield positions accordingly.
@@ -261,6 +275,90 @@ out:
 	kfree(ssr);
 	return err;
 }
+
+#if 0 /* Not use in PremiaV */
+// [[[[[[[[[[[[[[[[[ added by P10458 for OneSeg's CPRM
+static struct mmc_card cardInfo;
+static u32 mmc_sd_cal_card_area_capacity(struct mmc_card *card)
+{
+	int ret = 0;
+	u32 procted_area_capacity_in_byte = 0, user_data_area_capacity_in_byte = 0;
+	u32 *csd= card->raw_csd;
+	u32 csd_struct;
+	unsigned int e, m, blocknr, blocklen, c_size_mult, mult, read_block_len, block_len;
+	
+	#define CARD_SDSC	0
+	#define CARD_HC		1
+
+	/* calculate the version of the CSD structure */
+	csd_struct = UNSTUFF_BITS(csd, 126, 2);
+	
+	if(card->ccs == CARD_HC) {
+		/* the capacity of the protected area is SIZE_OF_PROTECTED_AREA in byte unit in case of SDHC or SDXC */
+		if(csd_struct != CARD_HC) {
+			printk("csd structure should be one\n");
+			ret = -1;
+			goto err;
+		}
+
+		procted_area_capacity_in_byte = card->ssr.size_of_protected_area;
+
+		/* user data area capacity = (C_SIZE + 1) * 512K byte*/
+		m = UNSTUFF_BITS(csd, 48, 22);
+		user_data_area_capacity_in_byte = (1 + m) << 10; 
+		//user_data_area_capacity_in_byte = (user_data_area_capacity_in_byte * 512);	// to avoid overflow
+		//printk("user_data_area_capacity_in_byte=[%d]*512\n", user_data_area_capacity_in_byte);	// tony
+	}else {
+		/* the capacity of the protected area is SIZE_OF_PROTECTED_AREA * MULT * BLOCK_LEN in byte in case of SDSC */
+		if(csd_struct != CARD_SDSC) {
+			printk("csd structure should be zero\n");
+			ret = -1;
+			goto err;
+		}
+		
+		c_size_mult = UNSTUFF_BITS(csd, 47, 3);	// C_SIZE_MULT in CSD register
+		mult = 1 << (c_size_mult + 2);
+		
+		read_block_len = UNSTUFF_BITS(csd, 80, 4);	// READ_BL_LEN in CSD register
+		block_len = 1 << read_block_len;
+		
+		procted_area_capacity_in_byte = card->ssr.size_of_protected_area * mult * block_len;
+
+		/* user data area capacity = BLOCKNR * BLOCK_LEN */		
+		e = UNSTUFF_BITS(csd, 47, 3);	// C_SIZE_MULT in CSD register, tony's comment
+		m = UNSTUFF_BITS(csd, 62, 12);	// C_SIZE
+		blocknr = (1 + m) << (e + 2);
+		//printk("blocknr=[%d]\n", blocknr); // tony
+		
+		read_block_len = UNSTUFF_BITS(csd, 80, 4);	// READ_BL_LEN in CSD register, tony's comment
+		blocklen = 1 << (read_block_len);
+		//printk("read_block_len=[%d], BLOCK_LEN=[%d]\n", read_block_len, blocklen); // tony
+		user_data_area_capacity_in_byte = blocknr;	// to avoid overflow
+		//printk("user_data_area_capacity_in_byte=[%d]*blocklen[%d]\n", user_data_area_capacity_in_byte, blocklen);
+	}
+
+	//printk("procted_area_capacity_in_byte=[%d] byte\n", procted_area_capacity_in_byte);
+	card->capacity_of_protected_area_in_byte = procted_area_capacity_in_byte;
+	card->capacity = user_data_area_capacity_in_byte;
+err:
+	return ret;
+}
+
+int mmc_sd_get_card_info(struct mmc_card *card)
+{
+	mmc_sd_cal_card_area_capacity(&cardInfo);
+	memcpy(card, &cardInfo, sizeof(struct mmc_card));
+	return 0;
+}
+
+int mmc_sd_read_sd_status(struct mmc_card *card)
+{
+	mmc_read_ssr(card);
+	return 0;
+}
+
+// ]]]]]]]]]]]]]]]]] added by P10458 for OneSeg's CPRM
+#endif
 
 /*
  * Fetches and decodes switch information
@@ -1034,6 +1132,18 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	}
 
 	host->card = card;
+#if 0 /* Not use in PremiaV */
+	// [[[[[[[[[[[[[[[[[[[[ added by P10458 for OneSeg's CPRM
+	card->ccs = (rocr & 0x40000000) >> 30;
+	memcpy(&cardInfo, card, sizeof(struct mmc_card));
+	printk("cardInfo: protected=[0x%x], secoure_mode=[0x%x], au=[0x%x], erase_offset=[%d], erase_timeout=[%d], ccs=[%d]\n", cardInfo.ssr.size_of_protected_area, 
+																		cardInfo.ssr.secure_mode, 
+																		cardInfo.ssr.au, 
+																		cardInfo.ssr.erase_offset, 
+																		cardInfo.ssr.erase_timeout,
+																		cardInfo.ccs);
+	// ]]]]]]]]]]]]]]]]]]]] added by P10458 for OneSeg's CPRM
+#endif	
 	return 0;
 
 free_card:

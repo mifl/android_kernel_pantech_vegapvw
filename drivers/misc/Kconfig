@@ -652,7 +652,19 @@ config USB_HSIC_SMSC_HUB
 
 	  This adds support for connecting devices like mouse in HSIC
 	  Host mode.
-
+config IRDA_UART_GPIO
+	bool "IRDA UART GPIO support"
+	help
+	  IrDA support to SIRIUS LTE 
+	default n
+	
+config PN544
+	bool "NXP PN544 NFC Controller Driver"
+	depends on I2C 
+	default y
+	help
+	  NXP PN544 Near Field Communication controller support.
+	  
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -661,4 +673,5 @@ source "drivers/misc/ti-st/Kconfig"
 source "drivers/misc/lis3lv02d/Kconfig"
 source "drivers/misc/carma/Kconfig"
 source "drivers/misc/altera-stapl/Kconfig"
+source "drivers/misc/felica/Kconfig"  
 endmenu

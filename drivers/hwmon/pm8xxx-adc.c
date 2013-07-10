@@ -778,6 +778,13 @@ uint32_t pm8xxx_adc_mpp_config_read(uint32_t mpp_num,
 	struct pm8xxx_adc *adc_pmic = pmic_adc;
 	int rc = 0;
 
+#if defined(FEATURE_ANDROID_PANTECH_USB_OTG_MODE) || defined(FEATURE_ANDROID_PANTECH_USB_SMB_OTG_MODE)
+	if(!pmic_adc){
+		printk("PM8921 adc is not intialized %d\n", -EINVAL);
+		return -EINVAL;
+	}
+#endif
+
 	if (!pm8xxx_adc_initialized)
 		return -ENODEV;
 

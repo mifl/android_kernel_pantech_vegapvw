@@ -29,6 +29,9 @@
 #include <linux/delay.h>
 #include <linux/mutex.h>
 #include <linux/rtc.h>
+#if defined(CONFIG_PANTECH_PMIC_MAX17058)
+#include <linux/mfd/pm8xxx/pm8921-charger.h>
+#endif
 
 #define BMS_CONTROL		0x224
 #define BMS_S1_DELAY		0x225
@@ -2581,6 +2584,139 @@ void pm8921_bms_charging_end(int is_battery_full)
 }
 EXPORT_SYMBOL_GPL(pm8921_bms_charging_end);
 
+#ifdef CONFIG_PANTECH_BMS_UPDATE
+#if defined(CONFIG_PANTECH_PMIC_MAX17058)
+int pm8921_bms_get_percent(bool max17058_uses) 
+{
+	int soc;
+
+	if (max17058_uses) {
+		soc = get_max17058_soc();
+
+		if (soc >= 100)
+			soc = 100;
+		else if (soc < 0)
+			soc = 0;
+	} else {
+		if (last_soc < 0)
+			soc = 0;
+		else if (last_soc > 100)
+			soc = 100;
+		else
+			soc = last_soc;
+        
+#ifdef PANTECH_BMS_UPDATE_UI_FULL
+		soc = (((soc*1000) / UI_FULL_SOC) + (100-UI_FULL_SOC)) / 10;
+
+		if(soc > 100)
+			soc = 100;
+		else if(soc < 0)
+			soc = 0;
+#endif 
+	}
+
+        return soc;
+}
+#else
+#define OFFSET_VALUE 25
+int pm8921_bms_get_percent(void) 
+{
+        static int prev_soc = -1;
+        int target_soc = -1 ;
+        int diff_val = 0 ;
+        static int speed_val = 0 ;
+        int soc ; // int soc;
+        
+        if( 0 >= last_soc )
+        {
+            soc = 0;
+        }
+        else if( UI_FULL_SOC <= last_soc )
+        {
+            soc = UI_FULL_SOC;
+        }
+        else
+        {
+            soc = last_soc;
+        }
+
+        target_soc = soc * 100 / UI_FULL_SOC ; // scaling for 100%
+
+        //pr_info("sayuss initial BATTERY soc[%d] t_soc[%d] UI_FULL_SOC[%d] ", soc , target_soc , UI_FULL_SOC);
+
+        if( 100 < target_soc)
+        {
+                target_soc = 100;
+        }
+        else if( 0 >= target_soc )
+        {
+                speed_val = 0 ;
+                prev_soc = 0 ;
+                return prev_soc ;
+        }
+
+        if( 0 > prev_soc )
+        {
+                prev_soc = target_soc ;
+        }
+
+        diff_val = target_soc - prev_soc ;
+
+        if( diff_val )
+        {
+                diff_val =(diff_val * OFFSET_VALUE * speed_val) / 100 ;
+
+
+                if( diff_val )
+                {
+                        speed_val = 0; 
+                }
+
+                prev_soc = prev_soc + diff_val;
+                speed_val++ ;
+        
+                if( 0 < diff_val )
+                {
+                        if( prev_soc > target_soc )
+                        {
+                                prev_soc = target_soc ;
+                                speed_val = 0;
+                        }
+                }
+                else if( 0 > diff_val )
+                {
+                        if( prev_soc < target_soc )
+                        {
+                                prev_soc = target_soc ;
+                                speed_val = 0;
+                        }
+                }
+                //pr_info("sayuss diff BATTERY prev_soc[%d] diff_val[%d] speed_val[%d] ", prev_soc , diff_val , speed_val);
+        }
+        else
+        {
+                speed_val = 0;
+                //pr_info("sayuss zero init speed_val[%d] diff_val[%d] prev_soc[%d] ", speed_val , diff_val , prev_soc);
+        }
+        
+        if( 0 > prev_soc )
+        {
+                //pr_info("sayuss Underflow Error speed_val[%d] diff_val[%d] prev_soc[%d] ", speed_val , diff_val , prev_soc);
+                prev_soc = 0;
+        }
+
+        if( 100 < prev_soc )
+        {
+                //pr_info("sayuss Overflow Error speed_val[%d] diff_val[%d] prev_soc[%d] ", speed_val , diff_val , prev_soc);
+                prev_soc = 100;
+        }
+
+        return prev_soc ;
+}
+#endif
+EXPORT_SYMBOL_GPL(pm8921_bms_get_percent);
+#endif
+
 int pm8921_bms_stop_ocv_updates(struct pm8921_bms_chip *chip)
 {
 	pr_debug("stopping ocv updates\n");
@@ -2780,9 +2916,78 @@ static int64_t read_battery_id(struct pm8921_bms_chip *chip)
 	}
 	pr_debug("batt_id phy = %lld meas = 0x%llx\n", result.physical,
 						result.measurement);
+#ifdef CONFIG_PANTECH_BMS_BATTERY_TYPE
+	return result.physical;
+#else
 	return result.adc_code;
+#endif
 }
 
+#ifdef CONFIG_PANTECH_BMS_BATTERY_TYPE
+static int set_battery_data(struct pm8921_bms_chip *chip)
+{
+	int64_t battery_id;
+
+	battery_id = read_battery_id(chip);
+
+	if (battery_id < 0) {
+		pr_err("cannot read battery id err = %lld\n", battery_id);
+		return battery_id;
+}
+
+        pr_info("pm8921-bms: battery id (%lld)\n", battery_id); 
+
+#if defined (CONFIG_MACH_MSM8960_VEGAPVW)
+      if ((is_between(BATTERY_ID_LG_STD_MIN, BATTERY_ID_LG_STD_MAX, battery_id))
+	    || (is_between(BATTERY_ID_SS_STD_MIN, BATTERY_ID_SS_STD_MAX, battery_id))
+	  )
+#elif defined (CONFIG_MACH_MSM8960_MAGNUS)
+      if (is_between(BATTERY_ID_SY_STD_MIN, BATTERY_ID_SY_STD_MAX, battery_id))
+#else
+	if (is_between(BATTERY_ID_STD_MIN, BATTERY_ID_STD_MAX, battery_id)) 
+#endif
+	{
+		chip->fcc = pantech_battery_std.fcc;
+		chip->fcc_temp_lut = pantech_battery_std.fcc_temp_lut;
+		chip->fcc_sf_lut = pantech_battery_std.fcc_sf_lut;
+		chip->pc_temp_ocv_lut = pantech_battery_std.pc_temp_ocv_lut;
+		chip->pc_sf_lut = pantech_battery_std.pc_sf_lut;
+		chip->rbatt_sf_lut = pantech_battery_std.rbatt_sf_lut;
+		chip->default_rbatt_mohm
+				= pantech_battery_std.default_rbatt_mohm;
+                chip->max_voltage_uv = (CHG_MAX_VOLTAGE_STD * 1000);
+                chip->delta_rbatt_mohm = pantech_battery_std.delta_rbatt_mohm;           
+		return 0;
+    }
+    else if (is_between(BATTERY_ID_EXT_MIN, BATTERY_ID_EXT_MAX, battery_id)) {
+		chip->fcc = pantech_battery_ext.fcc;
+		chip->fcc_temp_lut = pantech_battery_ext.fcc_temp_lut;
+		chip->fcc_sf_lut = pantech_battery_ext.fcc_sf_lut;
+		chip->pc_temp_ocv_lut = pantech_battery_ext.pc_temp_ocv_lut;
+		chip->pc_sf_lut = pantech_battery_ext.pc_sf_lut;
+		chip->rbatt_sf_lut = pantech_battery_ext.rbatt_sf_lut;
+		chip->default_rbatt_mohm
+				= pantech_battery_ext.default_rbatt_mohm;
+                chip->max_voltage_uv = (CHG_MAX_VOLTAGE_EXT * 1000);
+                chip->delta_rbatt_mohm = pantech_battery_ext.delta_rbatt_mohm;                  
+		return 0;
+	}
+	else {
+		pr_warn("invalid battery id, pantech standard battery assumed\n");
+		chip->fcc = pantech_battery_std.fcc;
+		chip->fcc_temp_lut = pantech_battery_std.fcc_temp_lut;
+		chip->fcc_sf_lut = pantech_battery_std.fcc_sf_lut;
+		chip->pc_temp_ocv_lut = pantech_battery_std.pc_temp_ocv_lut;
+		chip->pc_sf_lut = pantech_battery_std.pc_sf_lut;
+		chip->rbatt_sf_lut = pantech_battery_std.rbatt_sf_lut;
+		chip->default_rbatt_mohm
+				= pantech_battery_std.default_rbatt_mohm;
+                chip->max_voltage_uv = (CHG_MAX_VOLTAGE_STD * 1000);
+                chip->delta_rbatt_mohm = pantech_battery_std.delta_rbatt_mohm;                  
+		return 0;
+	}
+}
+#else //CONFIG_PANTECH_BMS_BATTERY_TYPE
 #define PALLADIUM_ID_MIN	0x7F40
 #define PALLADIUM_ID_MAX	0x7F5A
 #define DESAY_5200_ID_MIN	0x7F7F
@@ -2834,6 +3039,8 @@ desay:
 		chip->delta_rbatt_mohm = desay_5200_data.delta_rbatt_mohm;
 		return 0;
 }
+}
+#endif //CONFIG_PANTECH_BMS_BATTERY_TYPE
 
 enum bms_request_operation {
 	CALC_FCC,
@@ -3190,6 +3397,29 @@ static int __devinit pm8921_bms_probe(struct platform_device *pdev)
 	chip->soc_at_cv = -EINVAL;
 
 	chip->ignore_shutdown_soc = pdata->ignore_shutdown_soc;
+#ifdef CONFIG_PANTECH_BMS_BATTERY_TYPE
+	chip->batt_temp_channel = pdata->bms_cdata.batt_temp_channel;
+	chip->vbat_channel = pdata->bms_cdata.vbat_channel;
+	chip->ref625mv_channel = pdata->bms_cdata.ref625mv_channel;
+	chip->ref1p25v_channel = pdata->bms_cdata.ref1p25v_channel;
+	chip->batt_id_channel = pdata->bms_cdata.batt_id_channel;
+	
+	rc = set_battery_data(chip);
+	if (rc) {
+		pr_err("%s bad battery data %d\n", __func__, rc);
+		goto free_chip;
+	}
+
+	if (chip->pc_temp_ocv_lut == NULL) {
+		pr_err("temp ocv lut table is NULL\n");
+		rc = -EINVAL;
+		goto free_chip;
+	}
+
+	/* set defaults in the battery data */
+	if (chip->default_rbatt_mohm <= 0)
+		chip->default_rbatt_mohm = DEFAULT_RBATT_MOHMS;
+#else
 	rc = set_battery_data(chip);
 	if (rc) {
 		pr_err("%s bad battery data %d\n", __func__, rc);
@@ -3211,6 +3441,7 @@ static int __devinit pm8921_bms_probe(struct platform_device *pdev)
 	chip->ref625mv_channel = pdata->bms_cdata.ref625mv_channel;
 	chip->ref1p25v_channel = pdata->bms_cdata.ref1p25v_channel;
 	chip->batt_id_channel = pdata->bms_cdata.batt_id_channel;
+#endif
 	chip->revision = pm8xxx_get_revision(chip->dev->parent);
 	chip->enable_fcc_learning = pdata->enable_fcc_learning;
 

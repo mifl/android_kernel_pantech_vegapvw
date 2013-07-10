@@ -25,6 +25,11 @@
 #include <linux/mfd/pm8xxx/pwm.h>
 #include <linux/leds-pm8xxx.h>
 
+//++ p11309 - 2012.11.21 for misc device 
+#include <linux/miscdevice.h>
+#include <linux/fs.h>
+//-- p11309
+
 #define SSBI_REG_ADDR_DRV_KEYPAD	0x48
 #define PM8XXX_DRV_KEYPAD_BL_MASK	0xf0
 #define PM8XXX_DRV_KEYPAD_BL_SHIFT	0x04
@@ -122,6 +127,21 @@
 			_rgb_led_blue << PM8XXX_ID_RGB_LED_BLUE, \
 	}
 
+/* -------------------------------------------------------------------- */
+/*   debug option */
+/* -------------------------------------------------------------------- */
+//#define LED_PM8XXX_DBG_ENABLE
+
+#ifdef LED_PM8XXX_DBG_ENABLE
+#define dbg(fmt, args...)   printk("[+++ LED pm8xxx] " fmt, ##args)
+#else
+#define dbg(fmt, args...)
+#endif
+#define dbg_func_in()       dbg("[FUNC_IN] %s\n", __func__)
+#define dbg_func_out()      dbg("[FUNC_OUT] %s\n", __func__)
+#define dbg_line()          dbg("[LINE] %d(%s)\n", __LINE__, __func__)
+/* -------------------------------------------------------------------- */
+
 /**
  * supported_leds - leds supported for each PMIC version
  * @version - version of PMIC
@@ -169,6 +189,43 @@ struct pm8xxx_led_data {
 	int			max_current;
 };
 
+//////////////////////////////////////////////////////////////////////////
+//++ p11309 - 2012.11.21 for misc devices
+static struct pm8xxx_led_data *led_ioctl=NULL;
+
+static long leds_fops_ioctl(struct file *filp,unsigned int cmd, unsigned long arg); 
+static void pm8xxx_led_set(struct led_classdev *led_cdev, 	enum led_brightness value);
+static void led_kp_set(struct pm8xxx_led_data *led, enum led_brightness value);
+static void led_lc_set(struct pm8xxx_led_data *led, enum led_brightness value);
+
+static struct file_operations leds_fops = {
+	.owner = THIS_MODULE,
+	.unlocked_ioctl = leds_fops_ioctl, 
+};
+
+static struct miscdevice led_event = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = "led_fops",
+	.fops = &leds_fops,
+};
+
+static long leds_fops_ioctl( struct file *filp, unsigned int cmd, unsigned long arg) 
+{
+	u8 level;
+
+	dbg("leds_fops_ioctl: name = %s(id=%d), cmd=%d\n", led_ioctl->cdev.name, led_ioctl->id, cmd);
+
+	level = (cmd & 0xF0) >> 4;
+
+	if ( led_ioctl != NULL ) {
+		led_ioctl->cdev.brightness = level << 4;
+		led_lc_set(led_ioctl, level);
+	}	
+
+	return true;
+}
+
+//-- p11309
 static void led_kp_set(struct pm8xxx_led_data *led, enum led_brightness value)
 {
 	int rc;
@@ -395,7 +452,15 @@ static int pm8xxx_led_pwm_work(struct pm8xxx_led_data *led)
 			led_rgb_write(led, SSBI_REG_ADDR_RGB_CNTL1,
 				led->cdev.brightness);
 		}
+		dbg("pm8xxx_led_pwm_work-null: id=%d, duty_us=%d, brightness=%d, rc=%d\n", led->id, duty_us, led->cdev.brightness, rc);
 	} else {
+	
+//++ p11309 - 2012.11.21 for MARUKO LED
+#ifdef CONFIG_MACH_MSM8960_SIRIUSLTE		
+		rc = pm8xxx_pwm_lut_enable(led->pwm_dev, led->cdev.brightness);
+		led_lc_set(led, led->cdev.brightness);
+		dbg("pm8xxx_led_pwm_work-exist: id=%d, Brightness=%d, rc=%d\n", led->id, led->cdev.brightness, rc);
+#else	
 		if (led->cdev.brightness)
 			led_rgb_write(led, SSBI_REG_ADDR_RGB_CNTL1,
 				led->cdev.brightness);
@@ -403,6 +468,8 @@ static int pm8xxx_led_pwm_work(struct pm8xxx_led_data *led)
 		if (!led->cdev.brightness)
 			led_rgb_write(led, SSBI_REG_ADDR_RGB_CNTL1,
 				led->cdev.brightness);
+#endif
+//-- p11309
 	}
 
 	return rc;
@@ -413,6 +480,7 @@ static void __pm8xxx_led_work(struct pm8xxx_led_data *led,
 {
 	int rc;
 
+	dbg("__pm8xxx_led_work: id=%d, brightness=%d\n", led->id, level);
 	mutex_lock(&led->lock);
 
 	switch (led->id) {
@@ -470,6 +538,8 @@ static void pm8xxx_led_set(struct led_classdev *led_cdev,
 
 	led = container_of(led_cdev, struct pm8xxx_led_data, cdev);
 
+	dbg("pm8xxx_led_set: name=%s(%d), value=%d\n", led_cdev->name, led->id, value);
+
 	if (value < LED_OFF || value > led->cdev.max_brightness) {
 		dev_err(led->cdev.dev, "Invalid brightness value exceeds");
 		return;
@@ -478,6 +548,155 @@ static void pm8xxx_led_set(struct led_classdev *led_cdev,
 	led->cdev.brightness = value;
 	schedule_work(&led->work);
 }
+
+//++ p11309 - 2012.09.09 for using LPG on PM8921
+static int pm8xxx_led_blink_set(struct led_classdev *led_cdev, unsigned long *delay_on, unsigned long *delay_off, int led_percent_level)
+{
+	int i=0;
+	int rc = 0;
+	int on_count = 0;
+	int off_count = 0;
+	int duty_ms_temp = 0;
+
+//++ p11309 - 2012.11.21 for LPG Error fix. LPG0 is disable. 63 usable. start_idx is from 1.
+/*
+ * Note: There is a bug in LPG module that results in incorrect
+ * behavior of pattern when LUT index 0 is used. So effectively
+ * there are 63 usable LUT entries.
+ */
+	int num_duty_pcts_temp = 1;
+//-- p11309
+
+//++ p11309 - 2012.09.30 for calculating duration time for PMIC LPG	
+	int min_duation_diff_index=16;
+	int min_duation_diff_value=1024;
+	const int duty_msec_const[16] = { 0, 1, 2, 3, 4, 6, 8, 16, 18, 24, 32, 36, 64, 128, 256, 512 };
+//-- p11309
+
+	struct	pm8xxx_led_data *led;
+	led = container_of(led_cdev, struct pm8xxx_led_data, cdev);	
+
+	dbg("pm8xxx_led_blink_set: name=%s(%d), on=%lu, off=%lu, pcts=%d\n", led_cdev->name, led->id, *delay_on, *delay_off, led_percent_level);
+
+	if ( *delay_off == 0 && *delay_on != 0) {
+		// always on
+		led->pwm_duty_cycles->duty_pcts[0] = led_percent_level;
+		led->pwm_duty_cycles->duty_pcts[1] = led_percent_level;
+		led->pwm_duty_cycles->duty_pcts[2] = led_percent_level;
+		led->pwm_duty_cycles->start_idx = 1;
+		led->pwm_duty_cycles->num_duty_pcts = 2;
+		led->pwm_duty_cycles->duty_ms = 100;
+	}	
+	else if ( *delay_on == 0 ) {
+		//always off
+		led->cdev.brightness = 0;	
+	}
+	else {
+		if ( *delay_on < *delay_off) {			
+
+//++ p11309 - 2012.09.30 for onms over 500msec
+//++ p11309 - 2012.09.30 for calculating duration time for PMIC LPG
+			if ( (*delay_on) > duty_msec_const[15] ) {
+				on_count = (*delay_on)/duty_msec_const[15];
+				if ( (*delay_on)%duty_msec_const[15] > (duty_msec_const[15]/2) ) on_count++;
+				duty_ms_temp = duty_msec_const[15];
+			}
+			else {
+				on_count = 1;
+				duty_ms_temp = *delay_on;
+				for (i=0; i<16; i++ ) {
+					if ( duty_ms_temp >= duty_msec_const[i] ) {
+						if ( (duty_ms_temp - duty_msec_const[i]) < min_duation_diff_value ) {
+							min_duation_diff_index = i;
+							min_duation_diff_value = duty_ms_temp - duty_msec_const[i];
+						}
+					}
+					else {
+						if ( (duty_msec_const[i] - duty_ms_temp) < min_duation_diff_value ) {
+							min_duation_diff_index = i;
+							min_duation_diff_value = duty_msec_const[i] - duty_ms_temp;
+						}
+					}				
+				}
+				duty_ms_temp = duty_msec_const[min_duation_diff_index];
+			}
+			
+			off_count = (*delay_off)/duty_ms_temp;
+			if ( (*delay_off)%duty_ms_temp > (duty_ms_temp/2)) off_count++;
+
+			if ( (on_count + off_count) > (PM_PWM_LUT_SIZE-1) ) off_count = (PM_PWM_LUT_SIZE-1) - on_count;
+		}
+		else {
+
+			if ( (*delay_off) > duty_msec_const[15] ) {
+				off_count = (*delay_off)/duty_msec_const[15];
+				if ( (*delay_off)%duty_msec_const[15] > (duty_msec_const[15]/2) ) off_count++;
+				duty_ms_temp = duty_msec_const[15];
+			}
+			else {
+				off_count = 1;
+				duty_ms_temp = *delay_off;
+				for (i=0; i<16; i++ ) {
+					if ( duty_ms_temp >= duty_msec_const[i] ) {
+						if ( (duty_ms_temp - duty_msec_const[i]) < min_duation_diff_value ) {
+							min_duation_diff_index = i;
+							min_duation_diff_value = duty_ms_temp - duty_msec_const[i];
+						}
+					}
+					else {
+						if ( (duty_msec_const[i] - duty_ms_temp) < min_duation_diff_value ) {
+							min_duation_diff_index = i;
+							min_duation_diff_value = duty_msec_const[i] - duty_ms_temp;
+						}
+					}				
+				}
+				duty_ms_temp = duty_msec_const[min_duation_diff_index];
+			}		
+
+			on_count = (*delay_on)/duty_ms_temp;
+			if ( (*delay_on)%duty_ms_temp > (duty_ms_temp/2)) on_count++;
+
+			if ( (on_count + off_count) > (PM_PWM_LUT_SIZE-1) ) on_count = (PM_PWM_LUT_SIZE-1) - off_count;
+		}			
+//-- p11309
+
+		for (i=0; i<on_count; i++) {
+			led->pwm_duty_cycles->duty_pcts[num_duty_pcts_temp] = led_percent_level;
+			num_duty_pcts_temp++;
+		}
+		for (i=0; i<off_count; i++) {
+			led->pwm_duty_cycles->duty_pcts[num_duty_pcts_temp] = 0;
+			num_duty_pcts_temp++;
+		}
+
+		led->pwm_period_us = 1000;
+		led->pwm_duty_cycles->start_idx = 1;
+		led->pwm_duty_cycles->num_duty_pcts = num_duty_pcts_temp;
+		led->pwm_duty_cycles->duty_ms = duty_ms_temp;
+	}
+
+	if ( led->cdev.brightness > 0 ) {
+
+		led_lc_set(led, led->cdev.max_brightness);
+		rc = pm8xxx_pwm_lut_config(
+				led->pwm_dev,
+				led->pwm_period_us,
+				led->pwm_duty_cycles->duty_pcts,
+				led->pwm_duty_cycles->duty_ms,
+				led->pwm_duty_cycles->start_idx,
+				led->pwm_duty_cycles->num_duty_pcts,
+				0, 0,
+				PM8XXX_LED_PWM_FLAGS );		
+		dbg("pm8xxx_pwm_lut_config: period=%u, num_duty_pcts=%d, duty_ms=%d, on=%d, off=%d\n", led->pwm_period_us, num_duty_pcts_temp, duty_ms_temp, on_count, off_count);
+	}
+	else {
+		led_lc_set(led, 0);
+	}
+
+	schedule_work(&led->work);
+	return rc;
+}
+//++ p11309
 
 static int pm8xxx_set_led_mode_and_max_brightness(struct pm8xxx_led_data *led,
 		enum pm8xxx_led_modes led_mode, int max_current)
@@ -527,6 +746,7 @@ static int pm8xxx_set_led_mode_and_max_brightness(struct pm8xxx_led_data *led,
 		break;
 	default:
 		dev_err(led->cdev.dev, "LED Id is invalid");
+		dbg("LED Id is invalid");
 		return -EINVAL;
 	}
 
@@ -808,6 +1028,10 @@ static int __devinit pm8xxx_led_probe(struct platform_device *pdev)
 		led_dat		= &led[i];
 		led_cfg		= &pdata->configs[i];
 
+//++ p11309 - 2012.11.21 for misc device
+		if ( i==0 ) led_ioctl = led_dat;
+//-- p11309
+
 		led_dat->id     = led_cfg->id;
 		led_dat->pwm_channel = led_cfg->pwm_channel;
 		led_dat->pwm_period_us = led_cfg->pwm_period_us;
@@ -845,9 +1069,15 @@ static int __devinit pm8xxx_led_probe(struct platform_device *pdev)
 		led_dat->cdev.default_trigger   = curr_led->default_trigger;
 		led_dat->cdev.brightness_set    = pm8xxx_led_set;
 		led_dat->cdev.brightness_get    = pm8xxx_led_get;
-		led_dat->cdev.brightness	= LED_OFF;
-		led_dat->cdev.flags		= curr_led->flags;
-		led_dat->dev			= &pdev->dev;
+
+//++ p11309 - 2012.09.09 for using LPG on PM8921
+		if ( led_cfg->mode >= PM8XXX_LED_MODE_PWM1 && led_cfg->mode <= PM8XXX_LED_MODE_PWM3)
+			led_dat->cdev.blink_set		= pm8xxx_led_blink_set;
+//-- p11309
+
+		led_dat->cdev.brightness		= LED_OFF;
+		led_dat->cdev.flags				= curr_led->flags;
+		led_dat->dev					= &pdev->dev;
 
 		rc =  get_init_value(led_dat, &led_dat->reg);
 		if (rc < 0)
@@ -884,7 +1114,10 @@ static int __devinit pm8xxx_led_probe(struct platform_device *pdev)
 					led_dat->cdev.max_brightness);
 
 			if (led_dat->pwm_channel != -1) {
-				led_dat->cdev.max_brightness = LED_FULL;
+
+//++ p11309 - 2012.09.10 removed for LED Control
+//				led_dat->cdev.max_brightness = LED_FULL;
+//-- p11309
 				rc = pm8xxx_led_pwm_configure(led_dat);
 				if (rc) {
 					dev_err(&pdev->dev, "failed to "
@@ -899,6 +1132,10 @@ static int __devinit pm8xxx_led_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, led);
+
+//++ p11309 - 2012.11.21 for misc device
+	misc_register(&led_event);
+//-- p11309
 
 	return 0;
 

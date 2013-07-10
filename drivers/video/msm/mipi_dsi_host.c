@@ -928,8 +928,11 @@ void mipi_dsi_host_init(struct mipi_panel_info *pinfo)
 
 
 	/* allow only ack-err-status  to generate interrupt */
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+	MIPI_OUTP(MIPI_DSI_BASE + 0x0108, 0x13ff37e0); /* DSI_ERR_INT_MASK0 */
+#else
 	MIPI_OUTP(MIPI_DSI_BASE + 0x0108, 0x13ff3fe0); /* DSI_ERR_INT_MASK0 */
-
+#endif
 	intr_ctrl |= DSI_INTR_ERROR_MASK;
 	MIPI_OUTP(MIPI_DSI_BASE + 0x010c, intr_ctrl); /* DSI_INTL_CTRL */
 
@@ -1007,13 +1010,21 @@ void mipi_dsi_controller_cfg(int enable)
 void mipi_dsi_op_mode_config(int mode)
 {
 
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE) || defined(CONFIG_MACH_MSM8960_VEGAPVW) || defined(CONFIG_MACH_MSM8960_MAGNUS)
+	uint32 data;
+#endif
 	uint32 dsi_ctrl, intr_ctrl;
 
 	dsi_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x0000);
 	dsi_ctrl &= ~0x07;
 	if (mode == DSI_VIDEO_MODE) {
 		dsi_ctrl |= 0x03;
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+		intr_ctrl = (DSI_INTR_CMD_DMA_DONE_MASK |
+					DSI_INTR_VIDEO_DONE_MASK);
+#else
 		intr_ctrl = DSI_INTR_CMD_DMA_DONE_MASK;
+#endif
 	} else {		/* command mode */
 		dsi_ctrl |= 0x05;
 		intr_ctrl = DSI_INTR_CMD_DMA_DONE_MASK | DSI_INTR_ERROR_MASK |
@@ -1021,6 +1032,21 @@ void mipi_dsi_op_mode_config(int mode)
 	}
 
 	pr_debug("%s: dsi_ctrl=%x intr=%x\n", __func__, dsi_ctrl, intr_ctrl);
+
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE) || defined(CONFIG_MACH_MSM8960_VEGAPVW) || defined(CONFIG_MACH_MSM8960_MAGNUS)
+	//set BLLP_POWER_STOP
+	if(mode == DSI_VIDEO_MODE)
+	{
+		data = MIPI_INP(MIPI_DSI_BASE + 0x000c);
+		data |= BIT(12); // BLLP_POWER_STOP 
+		MIPI_OUTP(MIPI_DSI_BASE + 0x000c, data); 
+	}else
+	{
+		data = MIPI_INP(MIPI_DSI_BASE + 0x000c);
+		data &= ~BIT(12); // BLLP_POWER_STOP 
+		MIPI_OUTP(MIPI_DSI_BASE + 0x000c, data); 
+	}
+#endif
 
 	MIPI_OUTP(MIPI_DSI_BASE + 0x010c, intr_ctrl); /* DSI_INTL_CTRL */
 	MIPI_OUTP(MIPI_DSI_BASE + 0x0000, dsi_ctrl);
@@ -1150,6 +1176,9 @@ int mipi_dsi_cmds_tx(struct dsi_buf *tp, struct dsi_cmd_desc *cmds, int cnt)
 	if (video_mode) {
 		ctrl = dsi_ctrl | 0x04; /* CMD_MODE_EN */
 		MIPI_OUTP(MIPI_DSI_BASE + 0x0000, ctrl);
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+		mdp4_dsi_video_wait4dmap_for_dsi(0);
+#endif
 	}
 
 	cm = cmds;
@@ -1197,6 +1226,25 @@ int mipi_dsi_cmds_rx(struct msm_fb_data_type *mfd,
 	int cnt, len, diff, pkt_size;
 	char cmd;
 
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+	uint32 dsi_ctrl, ctrl;
+	int video_mode;
+
+	/* turn on cmd mode
+	* for video mode, do not send cmds more than
+	* one pixel line, since it only transmit it
+	* during BLLP.
+	*/
+	dsi_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x0000);
+	video_mode = dsi_ctrl & 0x02; /* VIDEO_MODE_EN */
+	if (video_mode) {
+		ctrl = dsi_ctrl | 0x04; /* CMD_MODE_EN */
+		MIPI_OUTP(MIPI_DSI_BASE + 0x0000, ctrl);
+		mdp4_dsi_video_wait4dmap_for_dsi(0);
+	}
+
+#endif
+	
 	if (mfd->panel_info.mipi.no_max_pkt_size) {
 		/* Only support rlen = 4*n */
 		rlen += 3;
@@ -1265,6 +1313,11 @@ int mipi_dsi_cmds_rx(struct msm_fb_data_type *mfd,
 	}
 
 	mipi_dsi_cmd_dma_rx(rp, cnt);
+	
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+	if (video_mode)
+		MIPI_OUTP(MIPI_DSI_BASE + 0x0000, dsi_ctrl); /* restore */
+#endif
 
 	if (mfd->panel_info.mipi.no_max_pkt_size) {
 		/*
@@ -1453,7 +1506,13 @@ int mipi_dsi_cmd_dma_tx(struct dsi_buf *tp)
 	wmb();
 	spin_unlock_irqrestore(&dsi_mdp_lock, flags);
 
+	/* LCD shinjg */
+#ifdef CONFIG_F_SKYDISP_LCD_DMA_TIMEOUT
+//	wait_for_completion_timeout(&dsi_dma_comp, 30UL); // 10 -> 5 flick cursor
+	wait_for_completion_timeout(&dsi_dma_comp, msecs_to_jiffies(80)); // 10 -> 5 flick cursor
+#else
 	wait_for_completion(&dsi_dma_comp);
+#endif
 
 	dma_unmap_single(&dsi_dev, tp->dmap, tp->len, DMA_TO_DEVICE);
 	tp->dmap = 0;

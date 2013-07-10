@@ -405,9 +405,9 @@ void mdp4_dsi_cmd_vsync_ctrl(struct fb_info *info, int enable)
 		vctrl->clk_enabled, vctrl->vsync_enabled, enable);
 
 	if (vctrl->vsync_enabled == enable) {
-		mutex_unlock(&vctrl->update_lock);
+	mutex_unlock(&vctrl->update_lock);
 		return;
-	}
+}
 
 	vctrl->vsync_enabled = enable;
 
@@ -523,7 +523,7 @@ static void primary_rdptr_isr(int cndx)
 	vctrl->vsync_time = ktime_get();
 
 	complete_all(&vctrl->vsync_comp);
-	vctrl->wait_vsync_cnt = 0;
+		vctrl->wait_vsync_cnt = 0;
 
 	if (vctrl->expire_tick) {
 		vctrl->expire_tick--;

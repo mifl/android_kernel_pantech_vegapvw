@@ -828,7 +828,34 @@ static ssize_t hdmi_common_rda_hdmi_primary(struct device *dev,
 	DEV_DBG("%s: '%d'\n", __func__,	hdmi_prim_display);
 	return ret;
 }
+#ifdef CONFIG_PANTECH_MHL_CHECK_AT_BOOT
+static ssize_t hdmi_common_rda_hdmi_ready(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	/*
+	ssize_t ret = snprintf(buf, PAGE_SIZE, "%d\n",
+		external_common_state->video_resolution+1);
+	DEV_DBG("%s: '%d'\n", __func__,
+			external_common_state->video_resolution+1);
+			*/
+			printk("raed!!!");
+	return 0;
+}
 
+extern void hdmi_ready_func(int value);
+static ssize_t hdmi_common_wta_hdmi_ready(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	ssize_t ret = strnlen(buf, PAGE_SIZE);
+	uint32 is_hdmi_ready;
+	DEV_DBG("%s: in",__func__);
+	is_hdmi_ready = atoi(buf);
+	///DEV_INFO("%s: hdmi_block is %d\n", __func__, video_mode);
+	//hdmi_ready = is_block_hdmi;
+	hdmi_ready_func(is_hdmi_ready);
+	return ret;
+}
+#endif
 static DEVICE_ATTR(video_mode, S_IRUGO | S_IWUGO,
 	external_common_rda_video_mode, external_common_wta_video_mode);
 static DEVICE_ATTR(video_mode_str, S_IRUGO, external_common_rda_video_mode_str,
@@ -860,6 +887,10 @@ static DEVICE_ATTR(format_3d, S_IRUGO | S_IWUGO, hdmi_3d_rda_format_3d,
 #endif
 static DEVICE_ATTR(hdmi_primary, S_IRUGO, hdmi_common_rda_hdmi_primary, NULL);
 
+#ifdef CONFIG_PANTECH_MHL_CHECK_AT_BOOT
+static DEVICE_ATTR(hdmi_ready, S_IRUGO | S_IWUGO, hdmi_common_rda_hdmi_ready,
+	hdmi_common_wta_hdmi_ready);
+#endif
 static struct attribute *external_common_fs_attrs[] = {
 	&dev_attr_video_mode.attr,
 	&dev_attr_video_mode_str.attr,
@@ -887,6 +918,9 @@ static struct attribute *external_common_fs_attrs[] = {
 	&dev_attr_cec_wr_frame.attr,
 #endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT */
 	&dev_attr_hdmi_primary.attr,
+#ifdef CONFIG_PANTECH_MHL_CHECK_AT_BOOT
+	&dev_attr_hdmi_ready.attr,
+#endif
 	NULL,
 };
 static struct attribute_group external_common_fs_attr_group = {
@@ -1420,25 +1454,25 @@ static void add_supported_video_format(
 		video_format, video_format_2string(video_format),
 		supported ? "Supported" : "Not-Supported");
 
-	if (mhl_is_connected()) {
-		const struct hdmi_disp_mode_timing_type *mhl_timing =
-			hdmi_mhl_get_supported_mode(video_format);
+		if (mhl_is_connected()) {
+			const struct hdmi_disp_mode_timing_type *mhl_timing =
+				hdmi_mhl_get_supported_mode(video_format);
 		mhl_supported = mhl_timing != NULL;
-		DEV_DBG("EDID: format: %d [%s], %s by MHL\n",
+			DEV_DBG("EDID: format: %d [%s], %s by MHL\n",
 			video_format, video_format_2string(video_format),
-			mhl_supported ? "Supported" : "Not-Supported");
+				mhl_supported ? "Supported" : "Not-Supported");
 	}
 
 	if (supported && mhl_supported) {
-		disp_mode_list->disp_mode_list[
+				disp_mode_list->disp_mode_list[
 			disp_mode_list->num_of_elements++] = video_format;
 		if (video_format == external_common_state->video_resolution) {
 			DEV_DBG("%s: Default resolution %d [%s] supported\n",
 					__func__, video_format,
 					video_format_2string(video_format));
 			external_common_state->default_res_supported = true;
-		}
 	}
+}
 }
 
 const char *single_video_3d_format_2string(uint32 format)
@@ -1976,6 +2010,10 @@ int hdmi_common_read_edid(void)
 	return 0;
 
 error:
+#ifdef CONFIG_PANTECH_MHL_CABLE_DETECT	
+	/* Do. failure of edid set default resolution to 720p*/
+	external_common_state->video_resolution = HDMI_VFRMT_1280x720p60_16_9;
+#endif	
 	external_common_state->disp_mode_list.num_of_elements = 1;
 	external_common_state->disp_mode_list.disp_mode_list[0] =
 		external_common_state->video_resolution;

@@ -904,9 +904,15 @@ void kgsl_pwrctrl_wake(struct kgsl_device *device)
 		/* Re-enable HW access */
 		mod_timer(&device->idle_timer,
 				jiffies + device->pwrctrl.interval_timeout);
+
+#if 0 //ls1 : EBI error patch
 		if (device->pwrctrl.restore_slumber == false)
 			pm_qos_update_request(&device->pm_qos_req_dma,
 						GPU_SWFI_LATENCY);
+#else
+    pm_qos_update_request(&device->pm_qos_req_dma, GPU_SWFI_LATENCY);
+#endif
+
 	case KGSL_STATE_ACTIVE:
 		break;
 	default:

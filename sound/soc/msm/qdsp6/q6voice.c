@@ -2091,6 +2091,71 @@ fail:
 	return -EINVAL;
 }
 
+#if defined(CONFIG_PANTECH_SND) && defined(CONFIG_MACH_MSM8960_VEGAPVW) // FEATURE_PANTECH_SND_ELECTOVOX
+int voice_send_set_oempp_enable_cmd(int cmd)
+{
+	struct oem_pp_set_param_send_cmd cvp_set_oempp_cmd;
+	int ret = 0;
+	void *apr_cvp;
+	u16 cvp_handle;
+
+	struct voice_data *v = voice_get_session(voc_get_session_id(VOICE_SESSION_NAME));
+
+	pr_info("%s() cmd %i\n", __func__, cmd);
+
+	if (v == NULL) {
+		pr_err("%s: v is NULL\n", __func__);
+		return -EINVAL;
+	}
+	apr_cvp = common.apr_q6_cvp;
+
+	if (!apr_cvp) {
+		pr_err("%s: apr_cvp is NULL.\n", __func__);
+		return -EINVAL;
+	}
+	cvp_handle = voice_get_cvp_handle(v);
+
+	/* fill in the header */
+	cvp_set_oempp_cmd.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+				APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
+	cvp_set_oempp_cmd.hdr.pkt_size = APR_PKT_SIZE(APR_HDR_SIZE,
+				sizeof(cvp_set_oempp_cmd) - APR_HDR_SIZE);
+	cvp_set_oempp_cmd.hdr.src_port = v->session_id;
+	cvp_set_oempp_cmd.hdr.dest_port = cvp_handle;
+	cvp_set_oempp_cmd.hdr.token = 0;
+	cvp_set_oempp_cmd.hdr.opcode = VOICE_CMD_SET_PARAM;
+
+	cvp_set_oempp_cmd.setparam_payload.payload_address = 0 ;
+	cvp_set_oempp_cmd.setparam_payload.payload_size = 0x10;
+	cvp_set_oempp_cmd.setparam_payload.module_id = TX_VOICE_ELECTOVOX_MODULE;
+	cvp_set_oempp_cmd.setparam_payload.param_id = cmd;
+	cvp_set_oempp_cmd.setparam_payload.param_size = MOD_ENABLE_PARAM_LEN;
+	cvp_set_oempp_cmd.setparam_payload.reserved = 0;
+	cvp_set_oempp_cmd.oempp_args.enable = 1;
+	cvp_set_oempp_cmd.oempp_args.reserved = 0;
+
+	v->cvp_state = CMD_STATUS_FAIL;
+	ret = apr_send_pkt(apr_cvp, (uint32_t *) &cvp_set_oempp_cmd);
+	if (ret < 0) {
+		pr_err("Fail: sending cvp set loopback enable,\n");
+		goto fail;
+	}
+
+#if 0
+	ret = wait_event_timeout(v->cvp_wait,
+		(v->cvp_state == CMD_STATUS_SUCCESS),
+		msecs_to_jiffies(TIMEOUT_MS));
+	if (!ret) {
+		pr_err("%s: wait_event timeout\n", __func__);
+		goto fail;
+	}
+#endif
+	return 0;
+fail:
+	return -EINVAL;
+}
+#endif
+
 static int voice_setup_vocproc(struct voice_data *v)
 {
 	struct cvp_create_full_ctl_session_cmd cvp_session_cmd;
@@ -4027,8 +4092,14 @@ static int32_t qdsp_cvp_callback(struct apr_client_data *data, void *priv)
 				wake_up(&v->cvp_wait);
 				break;
 			case VOICE_CMD_SET_PARAM:
+#if defined(CONFIG_PANTECH_SND) && defined(CONFIG_MACH_MSM8960_VEGAPVW) // NR on-off apr: jykim120217@LS1
+				pr_info("%s: VOICE_CMD_SET_PARAM\n", __func__);
+				v->cvp_state = CMD_STATUS_SUCCESS;
+				wake_up(&v->cvp_wait);
+#else
 				rtac_make_voice_callback(RTAC_CVP, ptr,
 							data->payload_size);
+#endif
 				break;
 			default:
 				pr_debug("%s: not match cmd = 0x%x\n",

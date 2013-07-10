@@ -23,7 +23,26 @@
 
 #define LED_BUFF_SIZE 50
 
+/* -------------------------------------------------------------------- */
+/*   debug option - p11309 */
+/* -------------------------------------------------------------------- */
+//#define LED_CLASS_DBG_ENABLE
+
+#ifdef LED_CLASS_DBG_ENABLE
+#define dbg(fmt, args...)   printk("[+++ LED CLASS] " fmt, ##args)
+#else
+#define dbg(fmt, args...)
+#endif
+#define dbg_func_in()       dbg("[FUNC_IN] %s\n", __func__)
+#define dbg_func_out()      dbg("[FUNC_OUT] %s\n", __func__)
+#define dbg_line()          dbg("[LINE] %d(%s)\n", __LINE__, __func__)
+/* -------------------------------------------------------------------- */
+
 static struct class *leds_class;
+
+//++ p11309
+static void led_timer_function(unsigned long data);
+//-- p11309
 
 static void led_update_brightness(struct led_classdev *led_cdev)
 {
@@ -35,6 +54,9 @@ static ssize_t led_brightness_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	dbg("brightness show: name=%s, brightness=%d, flag=%d\n", 
+		led_cdev->name, led_cdev->brightness, led_cdev->flags);
 
 	/* no lock needed for this */
 	led_update_brightness(led_cdev);
@@ -59,8 +81,14 @@ static ssize_t led_brightness_store(struct device *dev,
 
 		if (state == LED_OFF)
 			led_trigger_remove(led_cdev);
+//++ p11309 - 2012.11.21 for re-light
+		led_cdev->last_brightness = state;
+//-- p11309
 		led_set_brightness(led_cdev, state);
 	}
+
+	dbg("brightness store: name=%s, brightness=%d, flag=%d\n", 
+		led_cdev->name, led_cdev->brightness, led_cdev->flags);
 
 	return ret;
 }
@@ -92,10 +120,118 @@ static ssize_t led_max_brightness_show(struct device *dev,
 	return snprintf(buf, LED_BUFF_SIZE, "%u\n", led_cdev->max_brightness);
 }
 
+//++ p11309 - blinking
+static ssize_t led_blink_onms_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	return snprintf(buf, LED_BUFF_SIZE, "%lu\n", led_cdev->blink_delay_on);
+}
+static ssize_t led_blink_onms_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	ssize_t ret = -EINVAL;
+	char *after;
+	unsigned long state = simple_strtoul(buf, &after, 10);
+	size_t count = after - buf;	
+
+	if (isspace(*after)) count++;
+
+	if (count == size) {
+		ret = count;
+
+		led_cdev->blink_delay_on = state;		
+	}
+
+	dbg("blink onms store: name=%s, onMS=%lu, flag=%d\n", led_cdev->name, led_cdev->blink_delay_on, led_cdev->flags);
+
+	return ret;
+}
+
+static ssize_t led_blink_offms_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	return snprintf(buf, LED_BUFF_SIZE, "%lu\n", led_cdev->blink_delay_off);
+}
+static ssize_t led_blink_offms_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	ssize_t ret = -EINVAL;
+	char *after;
+	unsigned long state = simple_strtoul(buf, &after, 10);
+	size_t count = after - buf;	
+
+	if (isspace(*after)) count++;
+
+	if (count == size) {
+		ret = count;
+
+		led_cdev->blink_delay_off = state;		
+	}
+
+	dbg("blink offms store: name=%s, offMS=%lu, flag=%d\n", led_cdev->name, led_cdev->blink_delay_off, led_cdev->flags);
+
+	return ret;
+}
+
+static ssize_t led_blink_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
+{	
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	return snprintf(buf, LED_BUFF_SIZE, "%d\n", led_cdev->blink_brightness);
+}
+
+static ssize_t led_blink_enable_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	ssize_t ret = -EINVAL;
+	char *after;
+	unsigned long state = simple_strtoul(buf, &after, 10);
+	size_t count = after - buf;	
+
+	if (isspace(*after)) count++;
+
+	if (count == size) {
+		ret = count;
+		if (state == 1 && led_cdev->brightness > 0) {
+
+		//++ p11309 - 2012.09.06
+#ifdef LED_CLASS_USE_WAKE_LOCK	
+			wake_lock(&led_cdev->led_class_wake_lock);
+#endif	
+			led_blink_set(led_cdev, &led_cdev->blink_delay_on, &led_cdev->blink_delay_off);
+
+		//	led_set_software_blink(led_cdev);
+		//-- p11309
+
+		}
+		else {
+
+		//++ p11309 - 2012.09.06
+#ifdef LED_CLASS_USE_WAKE_LOCK	
+			wake_unlock(&led_cdev->led_class_wake_lock);
+#endif	
+			led_brightness_set(led_cdev, 0);
+
+		//	led_stop_software_blink(led_cdev);
+		//-- p11309
+
+		}		
+		dbg("blink store: name=%s, state=%lu, flag=%d\n", led_cdev->name, state, led_cdev->flags);
+	}
+
+	return ret;
+}
+
+//-- p11309 - blinking
+
 static struct device_attribute led_class_attrs[] = {
 	__ATTR(brightness, 0644, led_brightness_show, led_brightness_store),
 	__ATTR(max_brightness, 0644, led_max_brightness_show,
 			led_max_brightness_store),
+//++ p11309 - 2012.11.21 for MARUKO LED FD
+	__ATTR(blink_onms, 0644, led_blink_onms_show, led_blink_onms_store),
+	__ATTR(blink_offms, 0644, led_blink_offms_show, led_blink_offms_store),
+	__ATTR(blink_enable, 0644, led_blink_enable_show, led_blink_enable_store),
+//-- p11309
 #ifdef CONFIG_LEDS_TRIGGERS
 	__ATTR(trigger, 0644, led_trigger_show, led_trigger_store),
 #endif
@@ -161,6 +297,20 @@ static int led_suspend(struct device *dev, pm_message_t state)
 	if (led_cdev->flags & LED_CORE_SUSPENDRESUME)
 		led_classdev_suspend(led_cdev);
 
+//++ p11309 - 2012.09.09
+	if (led_cdev->flags & LED_ENABLE_POWER_SAVE)
+	{
+		dbg("Enable Power Save Mode: name=%s, brightness=%d\n", led_cdev->name, led_cdev->brightness);
+		if ( led_cdev->brightness > 0 ) {			
+			led_cdev->blink_set(
+				led_cdev, 
+				&led_cdev->blink_delay_on, 
+				&led_cdev->blink_delay_off, 
+				1*100/led_cdev->max_brightness);
+		}		
+	}
+//-- p11309 
+
 	return 0;
 }
 
@@ -170,6 +320,19 @@ static int led_resume(struct device *dev)
 
 	if (led_cdev->flags & LED_CORE_SUSPENDRESUME)
 		led_classdev_resume(led_cdev);
+
+	//++ p11309 - 2012.09.09
+	if (led_cdev->flags & LED_ENABLE_POWER_SAVE)
+	{
+		if ( led_cdev->brightness > 0 ) {
+			led_cdev->blink_set(
+				led_cdev, 
+				&led_cdev->blink_delay_on, 
+				&led_cdev->blink_delay_off, 
+				(led_cdev->brightness*100)/led_cdev->max_brightness);
+		}
+	}
+	//-- p11309 
 
 	return 0;
 }
@@ -203,12 +366,17 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 	led_cdev->blink_timer.function = led_timer_function;
 	led_cdev->blink_timer.data = (unsigned long)led_cdev;
 
+//++ p11309
+#ifdef LED_CLASS_USE_WAKE_LOCK	
+	wake_lock_init(&led_cdev->led_class_wake_lock, WAKE_LOCK_SUSPEND, "led_class");
+#endif
+//-- p11309
+
 #ifdef CONFIG_LEDS_TRIGGERS
 	led_trigger_set_default(led_cdev);
 #endif
 
-	printk(KERN_DEBUG "Registered led device: %s\n",
-			led_cdev->name);
+	dbg("Registered led device: %s\n", led_cdev->name);
 
 	return 0;
 }
@@ -231,6 +399,12 @@ void led_classdev_unregister(struct led_classdev *led_cdev)
 
 	/* Stop blinking */
 	led_brightness_set(led_cdev, LED_OFF);
+
+//++ p11309 - 2012.09.06
+#ifdef LED_CLASS_USE_WAKE_LOCK	
+	wake_lock_destroy(&led_cdev->led_class_wake_lock);
+#endif
+//-- p11309
 
 	device_unregister(led_cdev->dev);
 

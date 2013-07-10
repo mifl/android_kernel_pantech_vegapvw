@@ -395,7 +395,12 @@ extern int mmc_resume_bus(struct mmc_host *host);
 
 extern int mmc_suspend_host(struct mmc_host *);
 extern int mmc_resume_host(struct mmc_host *);
-
+#if 0 /* Not use at PremiaV */
+// [[[[[[[[[[[[ added by P10458, 2012-04-05
+extern int mmc_read_card_info(struct mmc_card *card);
+extern int mmc_read_sd_status(struct mmc_card *card);
+// ]]]]]]]]]]]] added by P10458, 2012-04-05
+#endif
 extern int mmc_power_save_host(struct mmc_host *host);
 extern int mmc_power_restore_host(struct mmc_host *host);
 

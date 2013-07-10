@@ -23,6 +23,21 @@
 #include <linux/slab.h>
 #include "leds.h"
 
+/* -------------------------------------------------------------------- */
+/*   debug option */
+/* -------------------------------------------------------------------- */
+//#define LED_TRIGGERS_DBG_ENABLE
+
+#ifdef LED_TRIGGERS_DBG_ENABLE
+#define dbg(fmt, args...)   printk("[+++ LED Triggers] " fmt, ##args)
+#else
+#define dbg(fmt, args...)
+#endif
+#define dbg_func_in()       dbg("[FUNC_IN] %s\n", __func__)
+#define dbg_func_out()      dbg("[FUNC_OUT] %s\n", __func__)
+#define dbg_line()          dbg("[LINE] %d(%s)\n", __LINE__, __func__)
+/* -------------------------------------------------------------------- */
+
 /*
  * Nests outside led_cdev->trigger_lock
  */
@@ -50,6 +65,9 @@ ssize_t led_trigger_store(struct device *dev, struct device_attribute *attr,
 		led_trigger_remove(led_cdev);
 		return count;
 	}
+
+	dbg("trigger store: trg_name=%s, dev_name=%s, brightness=%d, flag=%d\n", 
+		trigger_name, led_cdev->name, led_cdev->brightness, led_cdev->flags);
 
 	down_read(&triggers_list_lock);
 	list_for_each_entry(trig, &trigger_list, next_trig) {
@@ -93,6 +111,9 @@ ssize_t led_trigger_show(struct device *dev, struct device_attribute *attr,
 	up_read(&led_cdev->trigger_lock);
 	up_read(&triggers_list_lock);
 
+	dbg("trigger show: trg_name=%s, dev_name=%s, brightness=%d, flag=%d\n", 
+		led_cdev->trigger->name, led_cdev->name, led_cdev->brightness, led_cdev->flags);
+
 	len += sprintf(len+buf, "\n");
 	return len;
 }
@@ -113,6 +134,9 @@ void led_trigger_set(struct led_classdev *led_cdev, struct led_trigger *trigger)
 			led_cdev->trigger->deactivate(led_cdev);
 		led_cdev->trigger = NULL;
 		led_brightness_set(led_cdev, LED_OFF);
+
+		dbg("trigger set - led_cdev: trg_name=%s, dev_name=%s, brightness=%d, flag=%d\n", 
+			led_cdev->trigger->name, led_cdev->name, led_cdev->brightness, led_cdev->flags);
 	}
 	if (trigger) {
 		write_lock_irqsave(&trigger->leddev_list_lock, flags);
@@ -121,6 +145,8 @@ void led_trigger_set(struct led_classdev *led_cdev, struct led_trigger *trigger)
 		led_cdev->trigger = trigger;
 		if (trigger->activate)
 			trigger->activate(led_cdev);
+
+		dbg("trigger set - trigger: trg_name=%s\n", trigger->name);
 	}
 }
 EXPORT_SYMBOL_GPL(led_trigger_set);
@@ -222,8 +248,10 @@ void led_trigger_event(struct led_trigger *trigger,
 	read_lock(&trigger->leddev_list_lock);
 	list_for_each(entry, &trigger->led_cdevs) {
 		struct led_classdev *led_cdev;
-
 		led_cdev = list_entry(entry, struct led_classdev, trig_list);
+//++ p11309 - 2012.09.09 for max brightness level = 2
+		if ( brightness > 2 ) brightness = 2;
+//-- p11309 
 		led_set_brightness(led_cdev, brightness);
 	}
 	read_unlock(&trigger->leddev_list_lock);
@@ -252,8 +280,8 @@ EXPORT_SYMBOL_GPL(led_trigger_blink);
 
 void led_trigger_register_simple(const char *name, struct led_trigger **tp)
 {
-	struct led_trigger *trigger;
-	int err;
+	struct led_trigger *trigger = NULL;
+	int err=-1;
 
 	trigger = kzalloc(sizeof(struct led_trigger), GFP_KERNEL);
 

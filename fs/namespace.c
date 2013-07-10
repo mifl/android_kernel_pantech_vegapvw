@@ -2138,6 +2138,16 @@ long do_mount(char *dev_name, char *dir_name, char *type_page,
 	if (!dir_name || !*dir_name || !memchr(dir_name, 0, PAGE_SIZE))
 		return -EINVAL;
 
+#if defined(FEATURE_SW_RESET_RELEASE_MODE) && defined(F_PANTECH_OEM_ROOTING) //PANTECH_PROHIBIT_REMOUNT
+#if defined(T_SIRIUSLTE)
+  if ( !strncmp ("/system", dir_name, 7) && (flags & MS_REMOUNT) && !(flags & MS_RDONLY) )
+  {
+    printk(KERN_ERR "remount fail!! return err!! \n");
+    return -EPERM;
+  }
+#endif
+#endif
+
 	if (data_page)
 		((char *)data_page)[PAGE_SIZE - 1] = 0;
 

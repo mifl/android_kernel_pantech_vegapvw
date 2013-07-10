@@ -99,6 +99,14 @@ static ssize_t power_supply_show_property(struct device *dev,
 		return sprintf(buf, "%s\n", capacity_level_text[value.intval]);
 	else if (off == POWER_SUPPLY_PROP_TYPE)
 		return sprintf(buf, "%s\n", type_text[value.intval]);
+#if defined(CONFIG_PANTECH_CHARGER_WIRELESS)
+	else if (off == POWER_SUPPLY_PROP_WIRELESS)
+        	return sprintf(buf, "%d\n", value.intval);
+#endif
+#if defined(CONFIG_PANTECH_SMB_CHARGER_DTH)
+	else if (off == POWER_SUPPLY_PROP_DTH)
+        return sprintf(buf, "%d\n", value.intval);
+#endif
 	else if (off == POWER_SUPPLY_PROP_SCOPE)
 		return sprintf(buf, "%s\n", scope_text[value.intval]);
 	else if (off >= POWER_SUPPLY_PROP_MODEL_NAME)
@@ -178,6 +186,9 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(model_name),
 	POWER_SUPPLY_ATTR(manufacturer),
 	POWER_SUPPLY_ATTR(serial_number),
+#if defined(CONFIG_PANTECH_CHARGER_WIRELESS)
+	POWER_SUPPLY_ATTR(online_wireless),
+#endif
 };
 
 static struct attribute *

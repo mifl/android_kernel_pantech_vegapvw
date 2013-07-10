@@ -43,7 +43,11 @@ static const struct proto_ops msm_ipc_proto_ops;
 static inline int check_permissions(void)
 {
 	int rc = 0;
+#ifdef FEATURE_P_VZW_DS_PSDM_QMI_LINUX
+	if (!current_euid() || in_egroup_p(AID_NET_RAW) || in_egroup_p(AID_INET))
+#else
 	if (!current_euid() || in_egroup_p(AID_NET_RAW))
+#endif  /* FEATURE_P_VZW_DS_PSDM_QMI_LINUX */
 		rc = 1;
 	return rc;
 }

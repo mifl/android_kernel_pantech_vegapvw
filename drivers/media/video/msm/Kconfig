@@ -9,17 +9,22 @@ config MSM_CAMERA_V4L2
           native APIs are used through /dev/config0, /dev/frame0,
           and /dev/control0.
 
+comment "PANTECH_CAMERA Configuration"
+config PANTECH_CAMERA
+	bool "PANTECH CAMERA DRIVERS"
+	default n
+	
 comment "Camera Sensor Selection"
 config MT9T013
 	bool "Sensor mt9t013 (BAYER 3M)"
 	depends on MSM_CAMERA && !ARCH_MSM8X60 && !ARCH_MSM8960 && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	  MICRON 3M Bayer Sensor with AutoFocus
 config MT9D113
 	bool "Sensor mt9d113 (YUV 2M)"
 	depends on MSM_CAMERA && ARCH_MSM8X60 && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	  MICRON 2M YUV Sensor
 	  This sensor is the front camera on QT8660.
@@ -28,12 +33,13 @@ config MT9D113
 config MT9D112
 	bool "Sensor mt9d112 (YUV 2M)"
 	depends on MSM_CAMERA && !ARCH_MSM8X60 && !ARCH_MSM8960 && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	  MICRON 2M YUV Sensor
 config IMX074
 	bool "Sensor IMX074 (BAYER 13.5M)"
 	depends on MSM_CAMERA
+	default n
 	---help---
 	SONY 13.5 MP Bayer Sensor
 config OV5640
@@ -46,15 +52,17 @@ config OV5640
 config OV5647
 	bool "Sensor ov5647 (BAYER 5M)"
 	depends on MSM_CAMERA
+	default n
 	---help---
 	  OV 5M Bayer Sensor with AutoFocus
 
-config AD5046_ACT
-	bool "Lens actuator ad5046"
-	depends on MSM_CAMERA && OV5647
-	---help---
-	  ad5046 lens actuator driver for ov5647.
-	  Say Y here if this is msm7627A variant platform.
+#config AD5046_ACT
+#	bool "Lens actuator ad5046"
+#	depends on MSM_CAMERA && OV5647
+#default n
+#	---help---
+#	  ad5046 lens actuator driver for ov5647.
+#	  Say Y here if this is msm7627A variant platform.
 config WEBCAM_OV7692_QRD
 	bool "Sensor OV7692 QRD(VGA YUV)"
 	depends on MSM_CAMERA && (ARCH_MSM7X27A || ARCH_MSM8X60)
@@ -64,12 +72,13 @@ config WEBCAM_OV7692_QRD
 config MT9M114
         bool "Sensor MT9M114 (YUV 1.26M)"
         depends on MSM_CAMERA
+	default n
         ---help---
         APTINA 1.26 MP yuv Sensor
 config WEBCAM_OV7692
 	bool "Sensor OV7692 (VGA YUV)"
 	depends on MSM_CAMERA && ARCH_MSM8X60 && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	  Omni Vision VGA YUV Sensor.
 config WEBCAM_OV9726
@@ -83,19 +92,19 @@ config WEBCAM_OV9726
 config VX6953
 	bool "Sensor VX6953 (BAYER 5M)"
 	depends on MSM_CAMERA && (ARCH_MSM7X30 || ARCH_MSM8X60) && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	STM 5M Bayer Sensor with EDOF
 config SN12M0PZ
 	bool "Sensor sn12m0pz (Bayer 12 MP)"
 	depends on MSM_CAMERA && ARCH_MSM7X30 && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	  Sony 12 MP Bayer Sensor
 config MT9P012
 	bool "Sensor mt9p012 (BAYER 5M)"
 	depends on MSM_CAMERA && !ARCH_MSM8X60 && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	  MICRON 5M Bayer Sensor with Autofocus
 
@@ -119,7 +128,7 @@ endchoice
 config MT9P012_KM
 	bool "Sensor mt9p012 KM module (BAYER 5M)"
 	depends on MSM_CAMERA && !ARCH_MSM8X60 && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	  MICRON 5M Bayer Sensor KM modules with Autofocus
 
@@ -130,23 +139,73 @@ config MT9E013
 	---help---
 	  Aptina 8M Bayer Sensor modules with Autofocus
 
+config PANTECH_CAMERA_FLASH
+	bool "Pantech Camera"
+	depends on MSM_CAMERA && ARCH_MSM8960 && PANTECH_CAMERA
+	default n
+	---help---
+	LED flash for Pantech Camera
+	
+config PANTECH_CAMERA_FLASH_TPS61050
+	bool "Flash tps61050"
+	depends on MSM_CAMERA && ARCH_MSM8960 && PANTECH_CAMERA
+	default n
+	---help---
+	LED flash for tps61050
+	
+config PANTECH_CAMERA_CE1612
+	bool "Sensor ce1612 (ISP 8M)"
+	depends on MSM_CAMERA && ARCH_MSM8960 && PANTECH_CAMERA
+	default n	
+	---help---
+	Renesas 8M ISP Sensor modules with Autofocus	
+	
+config OV8820_ACT
+	bool "Actuator OV8820 (BAYER 8M)"
+	depends on MSM_CAMERA && ARCH_MSM8960 && PANTECH_CAMERA
+	default n
+	---help---
+	Actuator for Omivision 8 MP Bayer Sensor
+	
+config PANTECH_CAMERA_OV8820
+	bool "Sensor ov8820 (BAYER 8M)"
+	depends on MSM_CAMERA && ARCH_MSM8960 && PANTECH_CAMERA
+	default n	
+	---help---
+	Omnivision 8M Bayer Sensor modules with Autofocus
+	
+config PANTECH_CAMERA_CE1502
+	bool "Sensor ce1502 (ISP 13M)"
+	depends on MSM_CAMERA && ARCH_MSM8960 && PANTECH_CAMERA
+	default n	
+	---help---
+	Renesas 13M ISP Sensor modules with Autofocus
+		
+config PANTECH_CAMERA_YACD5C1SBDBC
+	bool "Sensor yacd5c1sbdbc (YUV 2M)"
+	depends on MSM_CAMERA && ARCH_MSM8960 && PANTECH_CAMERA
+	default n	
+	---help---
+	Hynix 2M YUV Sensor
+	
 config IMX074_ACT
 	bool "Actuator IMX074 (BAYER 13.5M)"
 	depends on MSM_CAMERA
+	default n
 	---help---
 	Actuator for SONY 13.5 MP Bayer Sensor
 
 config S5K3E2FX
 	bool "Sensor s5k3e2fx (Samsung 5M)"
 	depends on MSM_CAMERA && !ARCH_MSM8X60 && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	  Samsung 5M with Autofocus
 
 config QS_S5K4E1
 	bool "Sensor qs_s5k4e1 (Samsung 5M)"
 	depends on MSM_CAMERA && ARCH_MSM8X60 && !MSM_CAMERA_V4L2
-	default y
+	default n
 	---help---
 	  Samsung 5M with Autofocus
 
@@ -198,6 +257,7 @@ config IMX072
 config OV2720
 	bool "Sensor ov2720 (Omnivision 2MP)"
 	depends on MSM_CAMERA
+	default n
 
 config OV8825
 	bool "Sensor ov8825 (Omnivision 8M)"
@@ -217,17 +277,19 @@ config VB6801
 config MSM_CAMERA_FLASH
 	bool "Qualcomm MSM camera flash support"
 	depends on MSM_CAMERA
-	default y
+	default n	
 	---help---
 	  Enable support for LED flash for msm camera
 
 config MSM_CAMERA_SENSOR
 	bool "Qualcomm MSM camera sensor support"
 	depends on MSM_CAMERA
+	default n	
 
 config MSM_ACTUATOR
 	bool "Qualcomm MSM actuator support"
 	depends on MSM_CAMERA
+	default n
 
 config MSM_EEPROM
 	bool "Qualcomm MSM EEPROM support"
@@ -251,14 +313,14 @@ config MSM_GEMINI
 config MSM_VPE
 	tristate "Qualcomm MSM Video Pre-processing Engine support"
 	depends on MSM_CAMERA && (ARCH_MSM7X30 || ARCH_MSM8X60)
-	default y
+	default n	
 	---help---
 	  Enable support for Video Pre-processing Engine
 
 config QUP_EXCLUSIVE_TO_CAMERA
 	bool "QUP exclusive to camera"
 	depends on MSM_CAMERA
-	default y
+	default n	
 	---help---
 	  This flag enabled states that QUP
 	  is exclusive to camera. In case this
@@ -269,6 +331,7 @@ config QUP_EXCLUSIVE_TO_CAMERA
 config S5K3L1YX
 	bool "Sensor S5K3L1YX (BAYER 12M)"
 	depends on MSM_CAMERA
+	default n
 	---help---
 		Samsung 12 MP Bayer Sensor with auto focus, uses
 		4 mipi lanes, preview config = 1984 * 1508 at 30 fps,
@@ -278,12 +341,14 @@ config S5K3L1YX
 config IMX091
         bool "Sensor imx091 (Sony 13MP)"
         depends on MSM_CAMERA
+	default n
 	---help---
 	  Sony 13MP sensor back camera that uses 4 mipi lanes,
 	  runs at 30 fps preview and 14 fps snapshot
 
 config MSM_V4L2_VIDEO_OVERLAY_DEVICE
 	tristate "Qualcomm MSM V4l2 video overlay device"
+	default n
 	---help---
 	  Enables support for the MSM V4L2 video
 	  overlay driver. This allows video rendering
@@ -293,5 +358,6 @@ config MSM_V4L2_VIDEO_OVERLAY_DEVICE
 config OV7692
 	bool "Sensor OV7692 (VGA YUV)"
 	depends on MSM_CAMERA
+	default n
 	---help---
 	  Omni Vision VGA YUV Sensor

@@ -23,6 +23,10 @@
 #include "devices.h"
 #include "board-8960.h"
 
+//++ p11309 - 2012.11.07 for vibrator driver
+#include <linux/mfd/pm8xxx/vibrator.h>  
+//-- pp11309
+
 struct pm8xxx_gpio_init {
 	unsigned			gpio;
 	struct pm_gpio			config;
@@ -98,6 +102,9 @@ struct pm8xxx_mpp_init {
 static struct pm8xxx_gpio_init pm8921_gpios[] __initdata = {
 	PM8XXX_GPIO_OUTPUT_VIN(6, 1, PM_GPIO_VIN_VPH),	 /* MHL power EN_N */
 	PM8XXX_GPIO_DISABLE(7),				 /* Disable NFC */
+#if defined (CONFIG_MACH_MSM8960_MAGNUS) /* for lcd external reg 5.6V  p13447 shinjg*/
+	PM8XXX_GPIO_OUTPUT(15,	    1),
+#endif
 	PM8XXX_GPIO_INPUT(16,	    PM_GPIO_PULL_UP_30), /* SD_CARD_WP */
     /* External regulator shared by display and touchscreen on LiQUID */
 	PM8XXX_GPIO_OUTPUT(17,	    0),			 /* DISP 3.3 V Boost */
@@ -109,15 +116,42 @@ static struct pm8xxx_gpio_init pm8921_gpios[] __initdata = {
 	PM8XXX_GPIO_OUTPUT(43, 1),                       /* DISP_RESET_N */
 	PM8XXX_GPIO_OUTPUT(42, 0),                      /* USB 5V reg enable */
 	/* TABLA CODEC RESET */
-	PM8XXX_GPIO_OUTPUT_STRENGTH(34, 1, PM_GPIO_STRENGTH_MED)
+#if defined(FEATURE_ANDROID_PANTECH_USB_OTG_MODE) 
+	PM8XXX_GPIO_OUTPUT(36, 1),                      /* control : USB_HS_ID */
+#ifndef CONFIG_CXD2235AGC_NFC_FELICA	
+	PM8XXX_GPIO_OUTPUT(44, 1),                      /* control : PMIC_HS_ID */
+#endif
+	PM8XXX_GPIO_INPUT(25,	 PM_GPIO_PULL_NO), /* external pull-up 1p8*/
+#elif defined (FEATURE_ANDROID_PANTECH_USB_SMB_OTG_MODE)	
+	PM8XXX_GPIO_INPUT(25,	 PM_GPIO_PULL_NO), /* external pull-up 1p8*/
+#else
+	PM8XXX_GPIO_OUTPUT(25,	    1),
+#endif
+	PM8XXX_GPIO_OUTPUT_STRENGTH(34, 1, PM_GPIO_STRENGTH_MED),
+#ifdef CONFIG_PANTECH_FB_MSM_MHL_SII9244 
+#ifdef CONFIG_PANTECH_MHL_VCC_3P3
+#else
+PM8XXX_GPIO_OUTPUT(14, PM_GPIO_FUNC_NORMAL),
+#endif
+#endif	
+#if defined(CONFIG_PANTECH_SMB_CHARGER)
+PM8XXX_GPIO_INPUT(35,	    PM_GPIO_PULL_NO),	//DTH
+#endif
 };
 
 /* Initial PM8921 MPP configurations */
 static struct pm8xxx_mpp_init pm8921_mpps[] __initdata = {
 	/* External 5V regulator enable; shared by HDMI and USB_OTG switches. */
 	PM8XXX_MPP_INIT(7, D_INPUT, PM8921_MPP_DIG_LEVEL_VPH, DIN_TO_INT),
-	PM8XXX_MPP_INIT(PM8XXX_AMUX_MPP_8, A_INPUT, PM8XXX_MPP_AIN_AMUX_CH8,
-								DOUT_CTRL_LOW),
+	PM8XXX_MPP_INIT(PM8XXX_AMUX_MPP_8, A_INPUT, PM8XXX_MPP_AIN_AMUX_CH8,DOUT_CTRL_LOW),
+#if defined(CONFIG_MACH_MSM8960_VEGAPVW) /* Level Shifter Setting for LCD Reset. p13447 shinjg */ 
+#if (BOARD_VER > WS20)
+	//MPP voltage level shifter							DOUT_CTRL_LOW),
+	PM8XXX_MPP_INIT(11, D_INPUT, PM8921_MPP_DIG_LEVEL_S4, DIN_TO_INT),
+	PM8XXX_MPP_INIT(12, D_OUTPUT, PM8921_MPP_DIG_LEVEL_L17, DOUT_CTRL_MPP),
+#endif
+#endif
+	
 };
 
 void __init msm8960_pm8921_gpio_mpp_init(void)
@@ -176,6 +210,16 @@ static struct pm8xxx_adc_amux pm8xxx_adc_channels_data[] = {
 		ADC_DECIMATION_TYPE2, ADC_SCALE_XOTHERM},
 	{"pa_therm0", ADC_MPP_1_AMUX3, CHAN_PATH_SCALING1, AMUX_RSV1,
 		ADC_DECIMATION_TYPE2, ADC_SCALE_PA_THERM},
+#ifdef CONFIG_PANTECH_CHARGER
+	{"cable_id", ADC_MPP_1_AMUX6, CHAN_PATH_SCALING1, AMUX_RSV1,
+		ADC_DECIMATION_TYPE2, ADC_SCALE_DEFAULT},
+#endif		
+//++ p11309 - 2012.11.22 for Touch id Check
+#if defined (CONFIG_MACH_MSM8960_SIRIUSLTE)
+	{"touch_id", ADC_MPP_1_AMUX6, CHAN_PATH_SCALING1, AMUX_RSV1,
+		ADC_DECIMATION_TYPE2, ADC_SCALE_DEFAULT},
+#endif
+//-- p11309
 };
 
 static struct pm8xxx_adc_properties pm8xxx_adc_data = {
@@ -216,6 +260,14 @@ static struct pm8xxx_pwrkey_platform_data pm8xxx_pwrkey_pdata = {
 	.wakeup			= 1,
 };
 
+//++ p11309 - 2012.11.07 for vibrator driver
+static struct pm8xxx_vibrator_platform_data pm8xxx_vib_pdata = {  
+	.initial_vibrate_ms  = 500,
+	.level_mV = 3000,
+	.max_timeout_ms = 60000,
+};
+//-- p11309
+
 /* Rotate lock key is not available so use F1 */
 #define KEY_ROTATE_LOCK KEY_F1
 
@@ -245,13 +297,21 @@ static struct pm8xxx_keypad_platform_data keypad_data_liquid = {
 	.keymap_data            = &keymap_data_liquid,
 };
 
-
+//++ p11309 - 2012.11.07 for volume key ++ p11774 - 2013.02.28 added CONFIG_MACH_MSM8960_VEGAPVW
+#if defined(CONFIG_MACH_MSM8960_EF44S) || defined(CONFIG_MACH_MSM8960_SIRIUSLTE) || defined (CONFIG_MACH_MSM8960_VEGAPVW)
+static const unsigned int keymap[] = {
+	KEY(0, 0, KEY_VOLUMEUP),
+	KEY(0, 1, KEY_VOLUMEDOWN),
+};
+#else
 static const unsigned int keymap[] = {
 	KEY(0, 0, KEY_VOLUMEUP),
 	KEY(0, 1, KEY_VOLUMEDOWN),
 	KEY(0, 2, KEY_CAMERA_SNAPSHOT),
 	KEY(0, 3, KEY_CAMERA_FOCUS),
 };
+#endif
+//-- p11309
 
 static struct matrix_keymap_data keymap_data = {
 	.keymap_size    = ARRAY_SIZE(keymap),
@@ -415,6 +475,253 @@ static int pm8921_therm_mitigation[] = {
 #define MAX_VOLTAGE_MV		4200
 #define CHG_TERM_MA		100
 static struct pm8921_charger_platform_data pm8921_chg_pdata __devinitdata = {
+#if defined(CONFIG_PANTECH_CHARGER)    
+#if defined(CONFIG_MACH_MSM8960_STARQ)
+	.safety_time		= 600,	
+	.update_time		= 20000,
+	.max_voltage		= 4200,
+	.min_voltage	= 3600,
+	.resume_voltage_delta	= 50,
+	.term_current		= 50,
+	.cool_temp		= 0,
+	.warm_temp		= 45,
+	.temp_check_period	= 1,
+	.max_bat_chg_current	= 900,
+	.cool_bat_chg_current	= 400,
+	.warm_bat_chg_current	= 400,
+	.cool_bat_voltage	= 4000,
+	.warm_bat_voltage	= 4000,
+	.thermal_mitigation	= pm8921_therm_mitigation,
+	.thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),
+	.rconn_mohm		= 18,
+        //.trkl_voltage   = 2800,
+        .weak_voltage = 3200,
+        .trkl_current  = 50,
+        //.weak_current = 325,
+        .cold_thr = 1,
+        .hot_thr = 0,
+#elif defined (CONFIG_MACH_MSM8960_EF45K)
+  .safety_time		= 600,	
+  .update_time		= 20000,
+  .max_voltage		= 4350,
+  .min_voltage	= 3600,
+  .resume_voltage_delta	= 50,
+  .term_current         = 50,
+  .cool_temp		= 0,
+  .warm_temp		= 45,
+  .temp_check_period	= 1,
+  .max_bat_chg_current	= 900,
+  .cool_bat_chg_current	= 400,
+  .warm_bat_chg_current	= 400,
+  .cool_bat_voltage	= 4350,
+  .warm_bat_voltage	= 4350,	
+  .thermal_mitigation	= pm8921_therm_mitigation,
+  .thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),
+  .rconn_mohm		= 18,
+  //.trkl_voltage   = 2800,
+  .weak_voltage = 3200,
+  .trkl_current  = 50,
+  //.weak_current = 325,
+  .cold_thr = 1,
+  .hot_thr = 0,
+#elif defined (CONFIG_MACH_MSM8960_EF47S)
+  .safety_time		= 600,	
+  .update_time		= 20000,
+  .max_voltage		= 4350,
+  .min_voltage	= 3600,
+  .resume_voltage_delta	= 50,
+  .term_current         = 50,
+  .cool_temp		= 0,
+  .warm_temp		= 45,
+  .temp_check_period	= 1,
+  .max_bat_chg_current	= 900,
+  .cool_bat_chg_current	= 400,
+  .warm_bat_chg_current	= 400,
+  .cool_bat_voltage	= 4350,
+  .warm_bat_voltage	= 4350,	
+  .thermal_mitigation	= pm8921_therm_mitigation,
+  .thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),
+  .rconn_mohm		= 18,
+  //.trkl_voltage   = 2800,
+  .weak_voltage = 3200,
+  .trkl_current  = 50,
+  //.weak_current = 325,
+  .cold_thr = 1,
+  .hot_thr = 0,
+#elif defined (CONFIG_MACH_MSM8960_EF46L)
+  .safety_time		= 600,	
+  .update_time		= 20000,
+  .max_voltage		= 4350,
+  .min_voltage	= 3600,
+  .resume_voltage_delta	= 50,
+  .term_current         = 50,
+  .cool_temp		= 0,
+  .warm_temp		= 45,
+  .temp_check_period	= 1,
+  .max_bat_chg_current	= 900,
+  .cool_bat_chg_current	= 400,
+  .warm_bat_chg_current	= 400,
+  .cool_bat_voltage	= 4350,
+  .warm_bat_voltage	= 4350,	
+  .thermal_mitigation	= pm8921_therm_mitigation,
+  .thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),
+  .rconn_mohm		= 18,
+  //.trkl_voltage   = 2800,
+  .weak_voltage = 3200,
+  .trkl_current  = 50,
+  //.weak_current = 325,
+  .cold_thr = 1,
+  .hot_thr = 0,
+#elif defined (CONFIG_MACH_MSM8960_OSCAR)
+  .safety_time = 512,	
+  .update_time = 20000,
+  .max_voltage = 4360,
+  .min_voltage = 3600,
+  .resume_voltage_delta	= 100,
+  .term_current = 50,
+  .cool_temp = 0,
+  .warm_temp = 47,
+  .temp_check_period = 1,
+  .max_bat_chg_current = 900,
+  .cool_bat_chg_current	= 900,
+  .warm_bat_chg_current	= 900,
+  .cool_bat_voltage	= 4000,
+  .warm_bat_voltage	= 4000,	
+  .thermal_mitigation = pm8921_therm_mitigation,
+  .thermal_levels	= ARRAY_SIZE(pm8921_therm_mitigation),
+  .rconn_mohm		= 18,
+  //.trkl_voltage = 2800,
+  .weak_voltage = 3200,
+  .trkl_current = 50,
+  //.weak_current = 325,
+  .cold_thr = 0,
+  .hot_thr = 1,
+#elif defined (CONFIG_MACH_MSM8960_VEGAPVW)
+	.safety_time		= 600,	
+	.update_time		= 20000,
+	.max_voltage		= 4350,
+	.min_voltage	= 3600,
+	.resume_voltage_delta	= 50,
+	.term_current		= 50,
+	.cool_temp		= 0,
+	.warm_temp		= 45,
+	.temp_check_period	= 1,
+	.max_bat_chg_current	= 900,
+	.cool_bat_chg_current	= 850,
+	.warm_bat_chg_current	= 850,
+	.cool_bat_voltage	= 4000,
+	.warm_bat_voltage	= 4000,
+	.thermal_mitigation	= pm8921_therm_mitigation,
+	.thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),
+	.rconn_mohm		= 18,
+        //.trkl_voltage   = 2800,ruf
+        .weak_voltage = 3200,
+        .trkl_current  = 50,
+        //.weak_current = 325,
+        //.cold_thr = 0,
+        //.hot_thr = 1,
+        .cold_thr = 1,
+        .hot_thr = 0,
+        .vin_min = 4400,  
+#elif defined (CONFIG_MACH_MSM8960_MAGNUS)
+  .safety_time 			= 600,	
+  .update_time 			= 20000,
+  .max_voltage 			= 4360,
+  .min_voltage 			= 3600,
+  .resume_voltage_delta	= 50,
+  .term_current 		= 50,
+  .cool_temp 			= 0,
+  .warm_temp 			= 47,
+  .temp_check_period 	= 1,
+  .max_bat_chg_current 	= 900,
+  .cool_bat_chg_current		= 900,
+  .warm_bat_chg_current		= 900,
+  .cool_bat_voltage		= 4360,
+  .warm_bat_voltage		= 4000,	
+  .thermal_mitigation 	= pm8921_therm_mitigation,
+  .thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),
+  .rconn_mohm			= 18,
+  //.trkl_voltage 		= 2800,
+  .weak_voltage 		= 3200,
+  .trkl_current 		= 50,
+  //.weak_current 		= 325,
+  .cold_thr 			= 0,
+  .hot_thr 			= 1,
+  //.vin_min 			= 4400,
+#elif defined (CONFIG_MACH_MSM8960_EF44S)
+	.safety_time		= 600,	
+	.update_time		= 20000,
+	.max_voltage		= 4360,
+	.min_voltage	= 3600,
+	.resume_voltage_delta	= 40,
+	.term_current		= 50,
+	.cool_temp		= 0,
+	.warm_temp		= 45,
+	.temp_check_period	= 1,
+	.max_bat_chg_current	= 900,
+	.cool_bat_chg_current	= 500,
+	.warm_bat_chg_current	= 500,
+	.cool_bat_voltage	= 4000,
+	.warm_bat_voltage	= 4000,	
+	.thermal_mitigation	= pm8921_therm_mitigation,
+	.thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),
+	.rconn_mohm		= 18,
+	//.trkl_voltage   = 2800,
+	.weak_voltage = 3200,
+	.trkl_current  = 50,
+	//.weak_current = 325,
+	.cold_thr = 1,
+	.hot_thr = 0,
+#elif defined (CONFIG_MACH_MSM8960_SIRIUSLTE)
+	.safety_time		= 512,	
+	.update_time		= 20000,
+	.max_voltage		= 4200,
+	.min_voltage	= 3600,
+	.resume_voltage_delta	= 50,	
+	.term_current		= 50,	
+	.cool_temp		= 0,
+	.warm_temp		= 45,
+	.temp_check_period	= 1,
+	.max_bat_chg_current	= 900,
+	.cool_bat_chg_current	= 400,
+	.warm_bat_chg_current	= 400,
+	.cool_bat_voltage	= 4200,
+	.warm_bat_voltage	= 4200,
+	.thermal_mitigation	= pm8921_therm_mitigation,
+	.thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),	
+	.rconn_mohm		= 18,	
+        //.trkl_voltage   = 2800,
+        .weak_voltage = 3200,
+        .trkl_current  = 50,
+        //.weak_current = 325,
+        .cold_thr = 1,
+        .hot_thr = 0,
+#else
+	.safety_time		= 600,	
+	.update_time		= 20000,
+	.max_voltage		= 4200,
+	.min_voltage	= 3600,
+	.resume_voltage_delta	= 50,	
+	.term_current		= 50,	
+	.cool_temp		= 0,
+	.warm_temp		= 45,
+	.temp_check_period	= 1,
+	.max_bat_chg_current	= 900,
+	.cool_bat_chg_current	= 400,
+	.warm_bat_chg_current	= 400,
+	.cool_bat_voltage	= 4200,
+	.warm_bat_voltage	= 4200,
+	.thermal_mitigation	= pm8921_therm_mitigation,
+	.thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),	
+	.rconn_mohm		= 18,	
+        //.trkl_voltage   = 2800,
+        .weak_voltage = 3200,
+        .trkl_current  = 50,
+        //.weak_current = 325,
+        .cold_thr = 0,
+        .hot_thr = 1,
+#endif //defined(CONFIG_MACH_MSM8960_STARQ)
+#else //defined(CONFIG_PANTECH_CHARGER)
 	.safety_time		= 180,
 	.update_time		= 60000,
 	.max_voltage		= MAX_VOLTAGE_MV,
@@ -434,6 +741,7 @@ static struct pm8921_charger_platform_data pm8921_chg_pdata __devinitdata = {
 	.thermal_mitigation	= pm8921_therm_mitigation,
 	.thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),
 	.rconn_mohm		= 18,
+#endif //defined(CONFIG_PANTECH_CHARGER)
 };
 
 static struct pm8xxx_misc_platform_data pm8xxx_misc_pdata = {
@@ -451,10 +759,16 @@ static struct pm8921_bms_platform_data pm8921_bms_pdata __devinitdata = {
 	.chg_term_ua			= CHG_TERM_MA * 1000,
 };
 
+//++ p11309 - 2012.11.21 for LED Setting.
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE)
+	#define	PM8921_LC_LED_MAX_CURRENT	30	/* I = 4mA */
+#else
 #define	PM8921_LC_LED_MAX_CURRENT	4	/* I = 4mA */
+#endif
+//-- p11309
+#define PM8XXX_LED_PWM_DUTY_MS		20
 #define	PM8921_LC_LED_LOW_CURRENT	1	/* I = 1mA */
 #define PM8XXX_LED_PWM_PERIOD		1000
-#define PM8XXX_LED_PWM_DUTY_MS		20
 /**
  * PM8XXX_PWM_CHANNEL_NONE shall be used when LED shall not be
  * driven using PWM feature.
@@ -509,20 +823,49 @@ static struct pm8xxx_led_platform_data pm8xxx_leds_pdata_liquid = {
 };
 
 static struct led_info pm8921_led_info[] = {
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE)
+	[0] = {
+		.name				= "led:battery_charging",
+		.default_trigger	= "battery-charging",		
+	},
+	[1] = {
+		.name				= "red",		
+		.default_trigger	= "camera-notification",		
+	},
+	[2] = {
+		.name				= "blue",
+		.default_trigger	= "notification",		
+		.flags				= LED_ENABLE_POWER_SAVE,		
+	},
+#else
 	[0] = {
 		.name			= "led:battery_charging",
 		.default_trigger	= "battery-charging",
 	},
 	[1] = {
-		.name			= "led:battery_full",
 		.default_trigger	= "battery-full",
 	},
+#endif
 };
 
 static struct led_platform_data pm8921_led_core_pdata = {
 	.num_leds = ARRAY_SIZE(pm8921_led_info),
 	.leds = pm8921_led_info,
 };
+
+//++ p11309 - 2012.11.21 for LPG blicking control 
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE)
+
+static int pm8921_led2_pwm_duty_pcts[PM_PWM_LUT_SIZE-1] = {0, };
+
+static struct pm8xxx_pwm_duty_cycles pm8921_led2_pwm_duty_cycles = {
+	.duty_pcts = (int *)&pm8921_led2_pwm_duty_pcts,
+	.num_duty_pcts = ARRAY_SIZE(pm8921_led2_pwm_duty_pcts),
+	.duty_ms = PM8XXX_LED_PWM_DUTY_MS,
+	.start_idx = 1,
+};
+
+#else
 
 static int pm8921_led0_pwm_duty_pcts[56] = {
 		1, 4, 8, 12, 16, 20, 24, 28, 32, 36,
@@ -545,7 +888,31 @@ static struct pm8xxx_pwm_duty_cycles pm8921_led0_pwm_duty_cycles = {
 	.start_idx = 1,
 };
 
+#endif
+
 static struct pm8xxx_led_config pm8921_led_configs[] = {
+
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE)
+	[0] = {
+		.id = PM8XXX_ID_LED_0,
+		.mode = PM8XXX_LED_MODE_MANUAL,
+		.max_current = PM8921_LC_LED_MAX_CURRENT,
+	},
+	[1] = {
+		.id = PM8XXX_ID_LED_1,
+		.mode = PM8XXX_LED_MODE_MANUAL,
+		.max_current = PM8921_LC_LED_MAX_CURRENT,
+	},
+	[2] = {
+		.id = PM8XXX_ID_LED_2,
+		.mode = PM8XXX_LED_MODE_PWM2,
+		.max_current = PM8921_LC_LED_MAX_CURRENT,
+		.pwm_channel = 5,
+		.pwm_period_us = PM8XXX_LED_PWM_PERIOD,
+		.pwm_duty_cycles = &pm8921_led2_pwm_duty_cycles,
+	},
+
+#else
 	[0] = {
 		.id = PM8XXX_ID_LED_0,
 		.mode = PM8XXX_LED_MODE_PWM2,
@@ -561,7 +928,9 @@ static struct pm8xxx_led_config pm8921_led_configs[] = {
 		.pwm_channel = 4,
 		.pwm_period_us = PM8XXX_LED_PWM_PERIOD,
 	},
+#endif
 };
+//-- p11309
 
 static struct pm8xxx_led_platform_data pm8xxx_leds_pdata = {
 		.led_core = &pm8921_led_core_pdata,
@@ -598,6 +967,7 @@ static struct pm8921_platform_data pm8921_platform_data __devinitdata = {
 	.bms_pdata		= &pm8921_bms_pdata,
 	.adc_pdata		= &pm8xxx_adc_pdata,
 	.leds_pdata		= &pm8xxx_leds_pdata,
+	.vibrator_pdata		= &pm8xxx_vib_pdata,   // p11309 - 2012.11.07 for vibrator driver
 	.ccadc_pdata		= &pm8xxx_ccadc_pdata,
 	.pwm_pdata		= &pm8xxx_pwm_pdata,
 };

@@ -71,6 +71,10 @@ static struct vsycn_ctrl {
 	ktime_t vsync_time;
 } vsync_ctrl_db[MAX_CONTROLLER];
 
+#ifdef CONFIG_SKY_DONOT_FREE_PIPE_SUB_BLANK_FORCE
+extern int dont_free_pipe_while_sub_blank_force;
+#endif
+
 static void vsync_irq_enable(int intr, int term)
 {
 	unsigned long flag;
@@ -261,7 +265,7 @@ void mdp4_dsi_video_vsync_ctrl(struct fb_info *info, int enable)
 	if (vctrl->vsync_irq_enabled == enable)
 		return;
 
-	pr_debug("%s: vsync enable=%d\n", __func__, enable);
+	//pr_info("%s: vsync enable=%d\n", __func__, enable);
 
 	vctrl->vsync_irq_enabled = enable;
 
@@ -350,6 +354,28 @@ static void mdp4_dsi_video_wait4dmap_done(int cndx)
 	vsync_irq_disable(INTR_DMA_P_DONE, MDP_DMAP_TERM);
 }
 
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+void mdp4_dsi_video_wait4dmap_for_dsi(int cndx) {
+	unsigned long flags;
+	struct vsycn_ctrl *vctrl;
+
+	if (cndx >= MAX_CONTROLLER) {
+		pr_err("%s: out or range: cndx=%d\n", __func__, cndx);
+		return;
+	}
+	vctrl = &vsync_ctrl_db[cndx];
+
+	if (mdp_intr_mask & INTR_DMA_P_DONE)
+		mdp4_dsi_video_wait4dmap(cndx);
+	else {
+		spin_lock_irqsave(&vctrl->spin_lock, flags);
+		INIT_COMPLETION(vctrl->dmap_comp);
+		vsync_irq_enable(INTR_DMA_P_DONE, MDP_DMAP_TERM);
+		spin_unlock_irqrestore(&vctrl->spin_lock, flags);
+		mdp4_dsi_video_wait4dmap(cndx);
+	}
+}
+#endif
 
 static void mdp4_dsi_video_wait4ov(int cndx)
 {
@@ -449,6 +475,36 @@ void mdp4_dsi_video_base_swap(int cndx, struct mdp4_overlay_pipe *pipe)
 	vctrl->base_pipe = pipe;
 }
 
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+/* timing generator off */
+static void mdp4_dsi_video_tg_off(struct vsycn_ctrl *vctrl)
+{
+        unsigned long flags;
+	long long vtime;
+
+        spin_lock_irqsave(&vctrl->spin_lock, flags);
+        INIT_COMPLETION(vctrl->vsync_comp);
+        vctrl->wait_vsync_cnt++;
+        MDP_OUTP(MDP_BASE + DSI_VIDEO_BASE, 0); /* turn off timing generator */
+        spin_unlock_irqrestore(&vctrl->spin_lock, flags);
+
+        mdp4_dsi_video_wait4vsync(0, &vtime);
+}
+
+int mdp4_dsi_video_splash_done(void)
+{
+       struct vsycn_ctrl *vctrl;
+       int cndx = 0;
+
+       vctrl = &vsync_ctrl_db[cndx];
+
+       mdp4_dsi_video_tg_off(vctrl);
+       mipi_dsi_controller_cfg(0);
+
+       return 0;
+}
+#endif
+
 int mdp4_dsi_video_on(struct platform_device *pdev)
 {
 	int dsi_width;
@@ -545,6 +601,7 @@ int mdp4_dsi_video_on(struct platform_device *pdev)
 		pipe = vctrl->base_pipe;
 	}
 
+#ifndef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
 	if (!(mfd->cont_splash_done)) {
 		mfd->cont_splash_done = 1;
 		mdp4_dsi_video_wait4dmap_done(0);
@@ -555,6 +612,7 @@ int mdp4_dsi_video_on(struct platform_device *pdev)
 		   Disabling clocks now */
 		mdp_clk_ctrl(0);
 	}
+#endif
 
 	pipe->src_height = fbi->var.yres;
 	pipe->src_width = fbi->var.xres;
@@ -724,11 +782,21 @@ int mdp4_dsi_video_off(struct platform_device *pdev)
 
 	if (pipe) {
 		/* sanity check, free pipes besides base layer */
+#ifdef CONFIG_SKY_DONOT_FREE_PIPE_SUB_BLANK_FORCE
+		if(dont_free_pipe_while_sub_blank_force==1) {
+			printk("CONFIG_SKY_DONOT_FREE_PIPE_SUB_BLANK_FORCE\n"); 
+		}
+		else {	
 		mdp4_overlay_unset_mixer(pipe->mixer_num);
+		}
+#else		
+		mdp4_overlay_unset_mixer(pipe->mixer_num);
+#endif
 		if (mfd->ref_cnt == 0) {
 			/* adb stop */
-			if (pipe->pipe_type == OVERLAY_TYPE_BF)
+			if (pipe->pipe_type == OVERLAY_TYPE_BF) {
 				mdp4_overlay_borderfill_stage_down(pipe);
+			}
 
 			/* base pipe may change after borderfill_stage_down */
 			pipe = vctrl->base_pipe;
@@ -1006,10 +1074,10 @@ static void mdp4_dsi_video_do_blt(struct msm_fb_data_type *mfd, int enable)
 
 	if (pipe->ov_blt_addr == 0) {
 		mdp4_allocate_writeback_buf(mfd, MDP4_MIXER0);
-		if (mfd->ov0_wb_buf->write_addr == 0) {
+	if (mfd->ov0_wb_buf->write_addr == 0) {
 			pr_warning("%s: no blt_base assigned\n", __func__);
-			return;
-		}
+		return;
+	}
 	}
 
 	pr_debug("%s: mode=%d, enable=%d ov_blt_addr=%x\n",
@@ -1030,7 +1098,7 @@ static void mdp4_dsi_video_do_blt(struct msm_fb_data_type *mfd, int enable)
 		pipe->dma_blt_addr =  0;
 		vctrl->blt_free = 4;	/* 4 commits to free wb buf */
 	}
-	spin_unlock_irqrestore(&vctrl->spin_lock, flag);
+		spin_unlock_irqrestore(&vctrl->spin_lock, flag);
 
 	if (ctrl == MDP4_OVERLAY_BLT_SWITCH_TG_ON) {
 		spin_lock_irqsave(&vctrl->spin_lock, flag);
@@ -1043,8 +1111,8 @@ static void mdp4_dsi_video_do_blt(struct msm_fb_data_type *mfd, int enable)
 			pr_debug("%s: blt switched in ISR dsi_video_enabled=%d\n",
 				__func__, dsi_video_enabled);
 			vctrl->blt_change++;
-		}
-		spin_unlock_irqrestore(&vctrl->spin_lock, flag);
+	}
+	spin_unlock_irqrestore(&vctrl->spin_lock, flag);
 		if (dsi_video_enabled)
 			mdp4_dsi_video_wait4dmap_done(0);
 	} else if (ctrl == MDP4_OVERLAY_BLT_SWITCH_TG_OFF) {
@@ -1076,7 +1144,7 @@ static void mdp4_dsi_video_do_blt(struct msm_fb_data_type *mfd, int enable)
 		mdp4_overlay_dmap_xy(pipe);
 	} else
 		pr_err("%s: ctrl=%d is not supported\n", __func__, ctrl);
-}
+	}
 
 void mdp4_dsi_video_overlay_blt(struct msm_fb_data_type *mfd,
 					struct msmfb_overlay_blt *req)

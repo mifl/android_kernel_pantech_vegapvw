@@ -41,6 +41,11 @@
 #include "msm_fb.h"
 #include "mdp4.h"
 
+/*video play rotate lockup CASE #01034021*/
+#define FEATURE_QUALCOMM_BUG_FIX_WRITEBACK_LOCKUP
+/* lived, 2013.03.11 fix for alpha-blending(alpha_drop value initialization) */
+#define PANTECH_LCD_QCPATCH_ALPHA_DROP_BUGFIX
+
 #define VERSION_KEY_MASK	0xFFFFFF00
 
 struct mdp4_overlay_ctrl {
@@ -368,6 +373,16 @@ void mdp4_overlay_cfg_init(void)
 
 int mdp4_overlay_borderfill_supported(void)
 {
+	if(ctrl->hw_version == 0)
+	{
+		unsigned int mdp_hw_version;
+		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		mdp_hw_version = inpdw(MDP_BASE + 0x0); /* MDP_HW_VERSION */
+		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+			
+		printk("ctrl->hw_version=%x,mdp_hw_version=%x\n",ctrl->hw_version,mdp_hw_version);
+		return mdp_hw_version;
+	}
 	return (ctrl->hw_version >= 0x0402030b);
 }
 
@@ -1760,8 +1775,10 @@ void mdp4_overlay_borderfill_stage_up(struct mdp4_overlay_pipe *pipe)
 		mdp4_dsi_cmd_base_swap(0, pipe);
 	else if (ctrl->panel_mode & MDP4_PANEL_LCDC)
 		mdp4_lcdc_base_swap(0, pipe);
+#ifdef CONFIG_FB_MSM_DTV
 	else if (ctrl->panel_mode & MDP4_PANEL_DTV)
 		mdp4_dtv_base_swap(0, pipe);
+#endif 
 
 	mdp4_overlay_reg_flush(bspipe, 1);
 	/* borderfill pipe as base layer */
@@ -1814,9 +1831,10 @@ void mdp4_overlay_borderfill_stage_down(struct mdp4_overlay_pipe *pipe)
 		mdp4_dsi_cmd_base_swap(0, bspipe);
 	else if (ctrl->panel_mode & MDP4_PANEL_LCDC)
 		mdp4_lcdc_base_swap(0, bspipe);
+#ifdef CONFIG_FB_MSM_DTV	
 	else if (ctrl->panel_mode & MDP4_PANEL_DTV)
 		mdp4_dtv_base_swap(0, bspipe);
-
+#endif
 	/* free borderfill pipe */
 	mdp4_overlay_reg_flush(pipe, 1);
 	mdp4_mixer_stage_down(pipe, 0); /* commit will happen for bspipe up */
@@ -1947,7 +1965,11 @@ void mdp4_mixer_blend_setup(int mixer)
 	int i, off, ptype, alpha_drop = 0;
 	int d_alpha, s_alpha;
 	unsigned char *overlay_base;
+#if !defined(CONFIG_QUALCOMM_BUG_FIX_BLENDING)
 	uint32 c0, c1, c2;
+#else	
+	uint32 c0, c1, c2, base_premulti; 
+#endif
 
 
 	d_pipe = ctrl->stage[mixer][MDP4_MIXER_STAGE_BASE];
@@ -1957,6 +1979,10 @@ void mdp4_mixer_blend_setup(int mixer)
 	}
 
 	blend = &ctrl->blend[mixer][MDP4_MIXER_STAGE0];
+#if defined(CONFIG_QUALCOMM_BUG_FIX_BLENDING)
+	base_premulti = ctrl->blend[mixer][MDP4_MIXER_STAGE_BASE].op &
+		MDP4_BLEND_FG_ALPHA_BG_CONST;
+#endif
 	for (i = MDP4_MIXER_STAGE0; i < MDP4_MIXER_STAGE_MAX; i++) {
 		blend->solidfill = 0;
 		blend->op = (MDP4_BLEND_FG_ALPHA_FG_CONST |
@@ -1968,6 +1994,10 @@ void mdp4_mixer_blend_setup(int mixer)
 			d_alpha = 0;
 			continue;
 		}
+
+#if defined(PANTECH_LCD_QCPATCH_ALPHA_DROP_BUGFIX)
+		alpha_drop = 0;
+#endif
 		/* alpha channel is lost on VG pipe when using QSEED or M/N */
 		if (s_pipe->pipe_type == OVERLAY_TYPE_VIDEO &&
 			((s_pipe->op_mode & MDP4_OP_SCALEY_EN) ||
@@ -1998,9 +2028,19 @@ void mdp4_mixer_blend_setup(int mixer)
 		} else if (s_alpha) {
 			if (!alpha_drop) {
 				blend->op = MDP4_BLEND_BG_ALPHA_FG_PIXEL;
+#if !defined(CONFIG_QUALCOMM_BUG_FIX_BLENDING)
 				if (!(s_pipe->flags & MDP_BLEND_FG_PREMULT))
+#else
+				if ((!(s_pipe->flags & MDP_BLEND_FG_PREMULT)) &&
+					((i != MDP4_MIXER_STAGE0) ||
+						(!base_premulti)))
+#endif
 					blend->op |=
 						MDP4_BLEND_FG_ALPHA_FG_PIXEL;
+#if defined(CONFIG_QUALCOMM_BUG_FIX_BLENDING)
+				else
+					blend->fg_alpha = 0xff;
+#endif
 			} else
 				blend->op = MDP4_BLEND_BG_ALPHA_FG_CONST;
 
@@ -2010,9 +2050,19 @@ void mdp4_mixer_blend_setup(int mixer)
 			if (ptype == OVERLAY_TYPE_VIDEO) {
 				blend->op = (MDP4_BLEND_FG_ALPHA_BG_PIXEL |
 					MDP4_BLEND_FG_INV_ALPHA);
+#if !defined(CONFIG_QUALCOMM_BUG_FIX_BLENDING)
 				if (!(s_pipe->flags & MDP_BLEND_FG_PREMULT))
+#else
+				if ((!(s_pipe->flags & MDP_BLEND_FG_PREMULT)) &&
+						((i != MDP4_MIXER_STAGE0) ||
+							(!base_premulti)))
+#endif
 					blend->op |=
 						MDP4_BLEND_BG_ALPHA_BG_PIXEL;
+#if defined(CONFIG_QUALCOMM_BUG_FIX_BLENDING)
+				else
+					blend->fg_alpha = 0xff;
+#endif
 				blend->co3_sel = 0; /* use bg alpha */
 			} else {
 				/* s_pipe is rgb without alpha */
@@ -3039,6 +3089,7 @@ int mdp4_overlay_set(struct fb_info *info, struct mdp_overlay *req)
 	int ret, mixer;
 	struct mdp4_overlay_pipe *pipe;
 
+	 
 	if (mfd == NULL) {
 		pr_err("%s: mfd == NULL, -ENODEV\n", __func__);
 		return -ENODEV;
@@ -3065,6 +3116,20 @@ int mdp4_overlay_set(struct fb_info *info, struct mdp_overlay *req)
 		pr_err("%s: mdp4_overlay_req2pipe, ret=%d\n", __func__, ret);
 		return ret;
 	}
+
+#ifdef FEATURE_QUALCOMM_BUG_FIX_WRITEBACK_LOCKUP
+    //UI blt mode cover up 
+	 mdp4_calc_pipe_mdp_clk(mfd, pipe);
+
+    if(pipe->mixer_num == MDP4_MIXER0 && pipe->req_clk > mdp_max_clk && OVERLAY_TYPE_RGB == mdp4_overlay_format2type(pipe->src_format)) {
+        pr_debug("%s UI blt case, can't compose with MDP directly.\n", __func__);
+			 	 if(req->id == MSMFB_NEW_REQUEST)  
+			 	 mdp4_overlay_pipe_free(pipe);
+
+		 		 mutex_unlock(&mfd->dma->ov_mutex);
+		 	 return -EINVAL;
+		 }
+#endif
 
 	/* return id back to user */
 	req->id = pipe->pipe_ndx;	/* pipe_ndx start from 1 */
@@ -3093,6 +3158,13 @@ int mdp4_overlay_set(struct fb_info *info, struct mdp_overlay *req)
 	}
 
 	mdp4_overlay_mdp_pipe_req(pipe, mfd);
+ //video blt mode cover up 
+ #ifdef FEATURE_QUALCOMM_BUG_FIX_WRITEBACK_LOCKUP
+	 if(pipe->mixer_num == MDP4_MIXER0 && pipe->req_clk > mdp_max_clk && OVERLAY_TYPE_VIDEO == mdp4_overlay_format2type(pipe->src_format)) { 
+        pr_debug("%s video blt case\n", __func__);
+		 pipe->req_clk = mdp_max_clk; 
+ } 
+#endif 
 
 	mutex_unlock(&mfd->dma->ov_mutex);
 
@@ -3462,8 +3534,10 @@ int mdp4_overlay_play(struct fb_info *info, struct msmfb_overlay_data *req)
 			mdp4_lcdc_pipe_queue(0, pipe);
 		}
 	} else if (pipe->mixer_num == MDP4_MIXER1) {
+#ifdef CONFIG_FB_MSM_DTV  // 20120905 jylee
 		if (ctrl->panel_mode & MDP4_PANEL_DTV)
 			mdp4_dtv_pipe_queue(0, pipe);/* cndx = 0 */
+#endif
 	}
 
 	mutex_unlock(&mfd->dma->ov_mutex);
@@ -3539,8 +3613,10 @@ int mdp4_overlay_commit(struct fb_info *info, int mixer)
 			mdp4_lcdc_pipe_commit(0, 1);
 		}
 	} else if (mixer == MDP4_MIXER1) {
+#ifdef CONFIG_FB_MSM_DTV  // 20121112 gyeseong Lee for build (starq model does not compiled mdp4_overaly_dtv.c file)
 		if (ctrl->panel_mode & MDP4_PANEL_DTV)
 			mdp4_dtv_pipe_commit(0, 1);
+#endif		
 	}
 
 	mdp4_overlay_mdp_perf_upd(mfd, 0);
@@ -3760,3 +3836,25 @@ done:
 	mutex_unlock(&mfd->dma->ov_mutex);
 	return err;
 }
+
+#if defined(CONFIG_QUALCOMM_BUG_FIX_BLENDING)
+int mdp4_update_base_blend(struct msm_fb_data_type *mfd,
+			struct mdp_blend_cfg *mdp_blend_cfg)
+{
+	int ret = 0;
+	u32 mixer_num;
+	struct blend_cfg *blend;
+	mixer_num = mdp4_get_mixer_num(mfd->panel_info.type);
+	if (!ctrl)
+		return -EPERM;
+	blend = &ctrl->blend[mixer_num][MDP4_MIXER_STAGE_BASE];
+	if (mdp_blend_cfg->is_premultiplied) {
+		blend->bg_alpha = 0xFF;
+		blend->op = MDP4_BLEND_FG_ALPHA_BG_CONST;
+	} else {
+		blend->op = MDP4_BLEND_FG_ALPHA_FG_PIXEL;
+		blend->bg_alpha = 0;
+	}
+	return ret;
+}
+#endif

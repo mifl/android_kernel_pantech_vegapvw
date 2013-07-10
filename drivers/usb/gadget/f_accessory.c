@@ -813,7 +813,7 @@ static int acc_ctrlrequest(struct usb_composite_dev *cdev,
 			if (!hid) {
 				value = -EINVAL;
 				goto err;
-			}
+		}
 			offset = w_index;
 			if (offset != hid->report_desc_offset
 				|| offset + w_length > hid->report_desc_len) {
@@ -1095,6 +1095,10 @@ static int acc_function_set_alt(struct usb_function *f,
 
 	/* readers may be blocked waiting for us to go online */
 	wake_up(&dev->read_wq);
+
+#ifdef CONFIG_ANDROID_PANTECH_USB_MANAGER
+	usb_interface_enum_cb(ACCESSORY_TYPE_FLAG);
+#endif
 	return 0;
 }
 

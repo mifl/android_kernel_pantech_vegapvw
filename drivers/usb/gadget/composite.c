@@ -818,8 +818,11 @@ int usb_remove_config(struct usb_composite_dev *cdev,
 
 	if (cdev->config == config)
 		reset_config(cdev);
-
-	list_del(&config->list);
+	// LS2_GB 20130206 list error workaround
+	if(config->list.next == LIST_POISON1 || config->list.prev == LIST_POISON2)
+		printk(KERN_ERR "%s(), remove config error. next[%p], prev[%p]\n",__func__, config->list.next, config->list.prev);
+	else
+		list_del(&config->list);
 
 	spin_unlock_irqrestore(&cdev->lock, flags);
 
@@ -1101,6 +1104,9 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 
 	/* we handle all standard USB descriptors */
 	case USB_REQ_GET_DESCRIPTOR:
+#ifdef CONFIG_ANDROID_PANTECH_USB_MANAGER
+	  usb_data_transfer_callback();
+#endif
 		if (ctrl->bRequestType != USB_DIR_IN)
 			goto unknown;
 		switch (w_value >> 8) {
@@ -1695,3 +1701,11 @@ void usb_composite_setup_continue(struct usb_composite_dev *cdev)
 	spin_unlock_irqrestore(&cdev->lock, flags);
 }
 
+#ifdef	CONFIG_ANDROID_PANTECH_USB_ABNORMAL_CHARGER_INFO
+extern int get_udc_state(char *udc_state);
+int composite_get_udc_state(char *udc_state)
+{
+	return get_udc_state(udc_state);
+}
+EXPORT_SYMBOL(composite_get_udc_state);
+#endif

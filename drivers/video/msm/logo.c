@@ -24,7 +24,12 @@
 #include <linux/irq.h>
 #include <asm/system.h>
 
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE)
+#define fb_width(fb)	((fb)->var.xres + 16) // 720 + 16 for 32bit align , shinbrad ( p13447 shinjg ) 20110322
+#else
 #define fb_width(fb)	((fb)->var.xres)
+#endif
+
 #define fb_height(fb)	((fb)->var.yres)
 #define fb_size(fb)	((fb)->var.xres * (fb)->var.yres * 2)
 

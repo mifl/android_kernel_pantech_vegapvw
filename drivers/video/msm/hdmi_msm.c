@@ -30,6 +30,24 @@
 #include "msm_fb.h"
 #include "hdmi_msm.h"
 
+
+#ifdef CONFIG_PANTECH_MHL_CABLE_DETECT
+extern int pantech_hdmi_cable_detect(int on);
+
+extern void MHL_On(bool on);
+
+extern int MHL_Get_Cable_State(void);
+
+extern int mhl_power_ctrl(int on);
+extern void MHL_En_Control(bool on);
+void mhl_do_hpd_ctrl(int on);
+#endif
+/* kkcho for reauth support */
+#define CONFIG_PANTECH_HDCP_REAUTH_SUPPORT
+/* 3.2.2.3 AVI PACKETS */
+#define F_SKY_HDMI_AUTH_CHECK_VALID_AVI_PACKETS 
+
+
 /* Supported HDMI Audio channels */
 #define MSM_HDMI_AUDIO_CHANNEL_2		0
 #define MSM_HDMI_AUDIO_CHANNEL_4		1
@@ -769,6 +787,49 @@ static void hdmi_msm_turn_on(void);
 static int hdmi_msm_audio_off(void);
 static int hdmi_msm_read_edid(void);
 static void hdmi_msm_hpd_off(void);
+#ifdef CONFIG_PANTECH_F_HDMI_NOTIFY_POWER_ON
+int pantech_hdmi_cable_detect(int on)
+{
+	char *envp[2];
+//	static int prev_on ;	
+//if (on == prev_on)
+//	return 0;	
+
+DEV_INFO("%s: in",__func__);
+
+	if (on)
+	{
+		/* Build EDID table */
+		envp[0] = "PHDMI=ON";
+		envp[1] = NULL;
+		DEV_INFO("pantech_hdmi_on ~~~~~~~~~~~~~ \n");
+		kobject_uevent_env(external_common_state->uevent_kobj,
+		KOBJ_CHANGE, envp);	
+	}
+	else
+	{	
+		/* Build EDID table */
+		
+			kobject_uevent(external_common_state->uevent_kobj,
+				KOBJ_OFFLINE);
+			switch_set_state(&external_common_state->sdev, 0);
+			DEV_INFO("Hdmi state switch to %d: %s\n",
+				external_common_state->sdev.state,  __func__);
+			envp[0] = "PHDMI=OFF";
+			envp[1] = NULL;
+			DEV_INFO("pantech_hdmi_off ~~~~~~~~~~~~~ \n");
+			kobject_uevent_env(external_common_state->uevent_kobj,
+			KOBJ_CHANGE, envp);	
+			DEV_INFO("HDMI HPD: sense DISCONNECTED: send OFFLINE\n"
+					);
+	
+	}
+
+//	prev_on = on;
+	return 0;	
+}
+EXPORT_SYMBOL(pantech_hdmi_cable_detect);
+#endif
 
 static bool hdmi_ready(void)
 {
@@ -791,6 +852,10 @@ static void hdmi_msm_send_event(boolean on)
 
 	if (on) {
 		/* Build EDID table */
+#ifdef CONFIG_PANTECH_MHL_CABLE_DETECT		
+		if(MHL_Get_Cable_State()==FALSE)
+			return;
+#endif		
 		hdmi_msm_read_edid();
 		switch_set_state(&external_common_state->sdev, 1);
 		DEV_INFO("%s: hdmi state switched to %d\n", __func__,
@@ -826,8 +891,8 @@ static void hdmi_msm_hpd_state_work(struct work_struct *work)
 		return;
 	}
 
-	hdmi_msm_send_event(external_common_state->hpd_state);
-}
+		hdmi_msm_send_event(external_common_state->hpd_state);
+	}
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT
 static void hdmi_msm_cec_latch_work(struct work_struct *work)
@@ -860,12 +925,12 @@ static void hdmi_msm_hdcp_reauth_work(struct work_struct *work)
 	 * Therefore, as surprising as it may sound do reauth
 	 * only if the device is HDCP-capable
 	 */
-	hdcp_deauthenticate();
-	mutex_lock(&hdcp_auth_state_mutex);
-	hdmi_msm_state->reauth = TRUE;
-	mutex_unlock(&hdcp_auth_state_mutex);
-	mod_timer(&hdmi_msm_state->hdcp_timer, jiffies + HZ/2);
-}
+		hdcp_deauthenticate();
+		mutex_lock(&hdcp_auth_state_mutex);
+		hdmi_msm_state->reauth = TRUE;
+		mutex_unlock(&hdcp_auth_state_mutex);
+		mod_timer(&hdmi_msm_state->hdcp_timer, jiffies + HZ/2);
+	}
 
 static void hdmi_msm_hdcp_work(struct work_struct *work)
 {
@@ -1033,7 +1098,10 @@ static irqreturn_t hdmi_msm_isr(int irq, void *dev_id)
 		DEV_DBG("%s: Queuing work to handle HPD %s event\n", __func__,
 				external_common_state->hpd_state ? "connect" :
 				"disconnect");
+#ifdef CONFIG_PANTECH_MHL_CABLE_DETECT
+#else
 		queue_work(hdmi_work_queue, &hdmi_msm_state->hpd_state_work);
+#endif
 		return IRQ_HANDLED;
 	}
 
@@ -2452,6 +2520,13 @@ static int hdcp_authentication_part1(void)
 			mutex_unlock(&hdcp_auth_state_mutex);
 			goto error;
 		}
+#ifdef CONFIG_PANTECH_MHL_CABLE_DETECT
+						/*
+							 * A small delay is needed here to avoid device crash observed
+							 * during reauthentication in MSM8960
+						*/
+				msleep(100);//msleep(20); /*Do. layer1 delay 20ms has a possibility of crash*/
+#endif
 
 		/* 0x0168 HDCP_RCVPORT_DATA12
 		   [23:8] BSTATUS
@@ -3611,7 +3686,7 @@ static int hdmi_msm_audio_off(void)
 			SWITCH_SET_HDMI_AUDIO(0, 1);
 		}
 		msleep(100);
-	}
+		}
 
 	if (i == timeout_val)
 		DEV_ERR("%s: Error: cannot turn off audio engine\n", __func__);
@@ -3630,8 +3705,13 @@ static uint8 hdmi_msm_avi_iframe_lut[][16] = {
 	 0x10,	0x10,	0x10,	0x10,	0x10, 0x10, 0x10}, /*00*/
 	{0x18,	0x18,	0x28,	0x28,	0x28,	 0x28,	0x28,	0x28,	0x28,
 	 0x28,	0x28,	0x28,	0x28,	0x18, 0x28, 0x18}, /*01*/
+#ifdef F_SKY_HDMI_AUTH_CHECK_VALID_AVI_PACKETS	 
+	{0x00,	0x00,	0x00,	0x00,	0x00,	 0x00,	0x00,	0x00,	0x00,
+	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00}, /*02*/
+#else	
 	{0x00,	0x04,	0x04,	0x04,	0x04,	 0x04,	0x04,	0x04,	0x04,
 	 0x04,	0x04,	0x04,	0x04,	0x88, 0x00, 0x04}, /*02*/
+#endif 
 	{0x02,	0x06,	0x11,	0x15,	0x04,	 0x13,	0x10,	0x05,	0x1F,
 	 0x14,	0x20,	0x22,	0x21,	0x01, 0x03, 0x11}, /*03*/
 	{0x00,	0x01,	0x00,	0x01,	0x00,	 0x00,	0x00,	0x00,	0x00,
@@ -4167,8 +4247,8 @@ static void hdmi_msm_hdcp_timer(unsigned long data)
 {
 	if (!hdmi_msm_state->hdcp_enable) {
 		DEV_DBG("%s: HDCP not enabled\n", __func__);
-		return;
-	}
+			return;
+		}
 
 	queue_work(hdmi_work_queue, &hdmi_msm_state->hdcp_work);
 }
@@ -4335,7 +4415,7 @@ static int hdmi_msm_power_ctrl(boolean enable)
 			if (rc) {
 				DEV_ERR("%s: HPD ON FAILED\n", __func__);
 				return rc;
-			}
+		}
 
 			/* Wait for HPD initialization to complete */
 			INIT_COMPLETION(hdmi_msm_state->hpd_event_processed);
@@ -4374,40 +4454,40 @@ static int hdmi_msm_power_on(struct platform_device *pdev)
 	/* Only start transmission with supported resolution */
 	changed = hdmi_common_get_video_format_from_drv_data(mfd);
 	if (changed || external_common_state->default_res_supported) {
-		mutex_lock(&external_common_state_hpd_mutex);
+	mutex_lock(&external_common_state_hpd_mutex);
 		if (external_common_state->hpd_state &&
 				hdmi_msm_is_power_on()) {
-			mutex_unlock(&external_common_state_hpd_mutex);
+		mutex_unlock(&external_common_state_hpd_mutex);
 
 			DEV_INFO("HDMI cable connected %s(%dx%d, %d)\n",
 				__func__, mfd->var_xres, mfd->var_yres,
 				mfd->var_pixclock);
 
-			hdmi_msm_turn_on();
+		hdmi_msm_turn_on();
 			hdmi_msm_state->panel_power_on = TRUE;
 
 			if (hdmi_msm_state->hdcp_enable) {
-				/* Kick off HDCP Authentication */
-				mutex_lock(&hdcp_auth_state_mutex);
-				hdmi_msm_state->reauth = FALSE;
-				hdmi_msm_state->full_auth_done = FALSE;
-				mutex_unlock(&hdcp_auth_state_mutex);
+		/* Kick off HDCP Authentication */
+		mutex_lock(&hdcp_auth_state_mutex);
+		hdmi_msm_state->reauth = FALSE;
+		hdmi_msm_state->full_auth_done = FALSE;
+		mutex_unlock(&hdcp_auth_state_mutex);
 				mod_timer(&hdmi_msm_state->hdcp_timer,
 						jiffies + HZ/2);
 			}
 		} else {
-			mutex_unlock(&external_common_state_hpd_mutex);
+		mutex_unlock(&external_common_state_hpd_mutex);
 		}
 
-		hdmi_msm_dump_regs("HDMI-ON: ");
-		DEV_INFO("power=%s DVI= %s\n",
-			hdmi_msm_is_power_on() ? "ON" : "OFF" ,
-			hdmi_msm_is_dvi_mode() ? "ON" : "OFF");
+	hdmi_msm_dump_regs("HDMI-ON: ");
+	DEV_INFO("power=%s DVI= %s\n",
+		hdmi_msm_is_power_on() ? "ON" : "OFF" ,
+		hdmi_msm_is_dvi_mode() ? "ON" : "OFF");
 	} else {
 		DEV_ERR("%s: Video fmt %d not supp. Returning\n",
 				__func__,
 				external_common_state->video_resolution);
-	}
+}
 
 error:
 	/* Set HPD cable sense polarity */
@@ -4418,18 +4498,27 @@ error:
 
 void mhl_connect_api(boolean on)
 {
+
 	char *envp[2];
 
 	/* Simulating a HPD event based on MHL event */
 	if (on) {
+#ifdef CONFIG_PANTECH_MHL_CABLE_DETECT
+		mhl_do_hpd_ctrl(1);		
+		hdmi_msm_send_event(true);
+#else
 		hdmi_msm_read_edid();
+#endif
 		hdmi_msm_state->reauth = FALSE ;
 		/* Build EDID table */
+#ifdef CONFIG_PANTECH_MHL_CABLE_DETECT	
+#else
 		hdmi_msm_turn_on();
 		DEV_INFO("HDMI HPD: CONNECTED: send ONLINE\n");
 		kobject_uevent(external_common_state->uevent_kobj,
 			       KOBJ_ONLINE);
 		envp[0] = 0;
+#endif
 		if (!hdmi_msm_state->hdcp_enable) {
 			/* Send Audio for HDMI Compliance Cases*/
 			envp[0] = "HDCP_STATE=PASS";
@@ -4441,7 +4530,10 @@ void mhl_connect_api(boolean on)
 			DEV_INFO("%s: hdmi state switched to %d\n",
 				 __func__, external_common_state->sdev.state);
 		} else {
+#ifdef CONFIG_PANTECH_MHL_CABLE_DETECT
+#else
 			hdmi_msm_hdcp_enable();
+#endif
 		}
 	} else {
 		DEV_INFO("HDMI HPD: DISCONNECTED: send OFFLINE\n");
@@ -4494,7 +4586,7 @@ static int hdmi_msm_power_off(struct platform_device *pdev)
 		cancel_work_sync(&hdmi_msm_state->hdcp_work);
 		del_timer_sync(&hdmi_msm_state->hdcp_timer);
 
-		hdcp_deauthenticate();
+	hdcp_deauthenticate();
 	}
 
 	SWITCH_SET_HDMI_AUDIO(0, 0);
@@ -4609,6 +4701,7 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 		rc = IS_ERR(hdmi_msm_state->hdmi_s_pclk);
 		goto error;
 	}
+
 
 	hdmi_msm_state->is_mhl_enabled = hdmi_msm_state->pd->is_mhl_enabled;
 
@@ -4766,7 +4859,7 @@ static int hdmi_msm_hpd_feature(int on)
 		rc = hdmi_msm_hpd_on();
 	} else {
 		if (external_common_state->hpd_state) {
-			external_common_state->hpd_state = 0;
+		external_common_state->hpd_state = 0;
 
 			/* Send offline event to switch OFF HDMI and HAL FD */
 			hdmi_msm_send_event(HPD_EVENT_OFFLINE);
@@ -4787,6 +4880,12 @@ static int hdmi_msm_hpd_feature(int on)
 
 	return rc;
 }
+#ifdef CONFIG_PANTECH_MHL_CABLE_DETECT
+void mhl_do_hpd_ctrl(int on){	
+	external_common_state->hpd_feature(on);
+	external_common_state->hpd_feature_on = on;
+}
+#endif
 
 static struct platform_driver this_driver = {
 	.probe = hdmi_msm_probe,

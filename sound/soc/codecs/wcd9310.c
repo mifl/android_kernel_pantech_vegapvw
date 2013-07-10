@@ -35,6 +35,12 @@
 #include <linux/gpio.h>
 #include "wcd9310.h"
 
+/* 20130213 LS1@SND long button event issue fix during the sleep */
+#ifdef CONFIG_PANTECH_SND
+#include <linux/wakelock.h>
+static struct wake_lock snd_wakeup;
+#endif
+
 static int cfilt_adjust_ms = 10;
 module_param(cfilt_adjust_ms, int, 0644);
 MODULE_PARM_DESC(cfilt_adjust_ms, "delay after adjusting cfilt voltage in ms");
@@ -408,6 +414,21 @@ static unsigned short tx_digital_gain_reg[] = {
 	TABLA_A_CDC_TX9_VOL_CTL_GAIN,
 	TABLA_A_CDC_TX10_VOL_CTL_GAIN,
 };
+
+#ifdef CONFIG_PANTECH_SND // for MBHC With GPIO(MSM GPIO)
+#if defined(T_VEGAPVW)
+extern bool headset_gpio_config;
+#endif
+#endif
+
+#ifdef CONFIG_PANTECH_SND
+static int headset_jack_status = 0;
+ 
+int wcd9310_headsetJackStatusGet(void)
+{
+	return headset_jack_status;
+}
+#endif
 
 static int tabla_codec_enable_charge_pump(struct snd_soc_dapm_widget *w,
 		struct snd_kcontrol *kcontrol, int event)
@@ -2283,6 +2304,14 @@ static void tabla_codec_pause_hs_polling(struct snd_soc_codec *codec)
 		return;
 	}
 
+/* 2013-02-13 LS1@SND CASE#01075506 [JB] Hook key for headset iPhone 5 only is not suitable working(call Tx mute)
+    CR#431573 ASoC: wcd9310: Disable Mic Bias Pull down prior to enable micbias */
+#ifdef CONFIG_PANTECH_SND
+	snd_soc_update_bits(codec, tabla->mbhc_bias_regs.ctl_reg, 0x01, 0x01);
+	msleep(20); // Original 250 -> LS1@SND Tunning value 20
+	snd_soc_update_bits(codec, tabla->mbhc_bias_regs.ctl_reg, 0x01, 0x00);
+#endif        
+
 	snd_soc_update_bits(codec, TABLA_A_CDC_MBHC_CLK_CTL, 0x8, 0x8);
 	pr_debug("%s: leave\n", __func__);
 }
@@ -2878,6 +2907,11 @@ static void tabla_snd_soc_jack_report(struct tabla_priv *tabla,
 				      int mask)
 {
 	/* XXX: wake_lock_timeout()? */
+/* 20130213 LS1@SND long button event issue fix during the sleep */
+#ifdef CONFIG_PANTECH_SND
+	wake_lock_timeout(&snd_wakeup, msecs_to_jiffies(600)); // 600ms
+#endif
+
 	snd_soc_jack_report_no_dapm(jack, status, mask);
 }
 
@@ -3712,9 +3746,21 @@ static s16 tabla_get_current_v_hs_max(struct tabla_priv *tabla)
 	return v_hs_max;
 }
 
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+/* Called under codec resource lock acquisition */
+#endif /* CONFIG_PANTECH_SND */
 static void tabla_codec_calibrate_rel(struct snd_soc_codec *codec)
 {
 	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
+
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+    if (tabla->mbhc_state == MBHC_STATE_POTENTIAL_RECOVERY) {
+        pr_err("%s: MBHC state being recovered, do not change thresholds\n", __func__);
+        return;
+    }
+#endif /* CONFIG_PANTECH_SND */
 
 	snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B3_CTL,
 		      tabla->mbhc_data.v_b1_hu & 0xFF);
@@ -3737,7 +3783,12 @@ static void tabla_codec_calibrate_rel(struct snd_soc_codec *codec)
 		      (tabla->mbhc_data.v_brl >> 8) & 0xFF);
 }
 
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+static void tabla_codec_calibrate_hs_polling(struct snd_soc_codec *codec, bool lock_acquired)
+#else /* QCOM_original */
 static void tabla_codec_calibrate_hs_polling(struct snd_soc_codec *codec)
+#endif /* CONFIG_PANTECH_SND */
 {
 	u8 *n_ready, *n_cic;
 	struct tabla_mbhc_btn_detect_cfg *btn_det;
@@ -3751,7 +3802,18 @@ static void tabla_codec_calibrate_hs_polling(struct snd_soc_codec *codec)
 	snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B2_CTL,
 		      (v_ins_hu >> 8) & 0xFF);
 
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+    if (!lock_acquired) {
+        TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
+        tabla_codec_calibrate_rel(codec);
+        TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
+    } else {
+        tabla_codec_calibrate_rel(codec);
+    }
+#else /* QCOM_original */
 	tabla_codec_calibrate_rel(codec);
+#endif /* CONFIG_PANTECH_SND */
 
 	n_ready = tabla_mbhc_cal_btn_det_mp(btn_det, TABLA_BTN_DET_N_READY);
 	snd_soc_write(codec, TABLA_A_CDC_MBHC_TIMER_B1_CTL,
@@ -3811,11 +3873,23 @@ static void tabla_shutdown(struct snd_pcm_substream *substream,
 int tabla_mclk_enable(struct snd_soc_codec *codec, int mclk_enable, bool dapm)
 {
 	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+    bool lock_acquired = false;
+#endif /* CONFIG_PANTECH_SND */
 
 	pr_debug("%s: mclk_enable = %u, dapm = %d\n", __func__, mclk_enable,
 		 dapm);
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+    if (dapm) {
+        lock_acquired = true;
+        TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
+    }
+#else /* QCOM_original */
 	if (dapm)
 		TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
+#endif /* CONFIG_PANTECH_SND */
 	if (mclk_enable) {
 		tabla->mclk_enabled = true;
 
@@ -3825,7 +3899,12 @@ int tabla_mclk_enable(struct snd_soc_codec *codec, int mclk_enable, bool dapm)
 			tabla_codec_enable_bandgap(codec,
 						   TABLA_BANDGAP_AUDIO_MODE);
 			tabla_codec_enable_clock_block(codec, 0);
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+            tabla_codec_calibrate_hs_polling(codec, lock_acquired);
+#else /* QCOM_original */
 			tabla_codec_calibrate_hs_polling(codec);
+#endif /* CONFIG_PANTECH_SND */
 			tabla_codec_start_hs_polling(codec);
 		} else {
 			tabla_codec_disable_clock_block(codec);
@@ -3836,8 +3915,16 @@ int tabla_mclk_enable(struct snd_soc_codec *codec, int mclk_enable, bool dapm)
 	} else {
 
 		if (!tabla->mclk_enabled) {
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+            if (dapm) {
+                TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
+                lock_acquired = false;
+            }
+#else /* QCOM_original */
 			if (dapm)
 				TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
+#endif /* CONFIG_PANTECH_SND */
 			pr_err("Error, MCLK already diabled\n");
 			return -EINVAL;
 		}
@@ -3850,7 +3937,12 @@ int tabla_mclk_enable(struct snd_soc_codec *codec, int mclk_enable, bool dapm)
 						   TABLA_BANDGAP_MBHC_MODE);
 			tabla_enable_rx_bias(codec, 1);
 			tabla_codec_enable_clock_block(codec, 1);
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+            tabla_codec_calibrate_hs_polling(codec, lock_acquired);
+#else /* QCOM_original */
 			tabla_codec_calibrate_hs_polling(codec);
+#endif /* CONFIG_PANTECH_SND */
 			tabla_codec_start_hs_polling(codec);
 			snd_soc_update_bits(codec, TABLA_A_CLK_BUFF_EN1,
 					0x05, 0x01);
@@ -3860,8 +3952,16 @@ int tabla_mclk_enable(struct snd_soc_codec *codec, int mclk_enable, bool dapm)
 						   TABLA_BANDGAP_OFF);
 		}
 	}
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+    if (dapm) {
+        TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
+        lock_acquired = false;
+    }
+#else /* QCOM_original */
 	if (dapm)
 		TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
+#endif /* CONFIG_PANTECH_SND */
 	return 0;
 }
 
@@ -5203,7 +5303,12 @@ static short tabla_codec_setup_hs_polling(struct snd_soc_codec *codec)
 	snd_soc_update_bits(codec, TABLA_A_CDC_MBHC_B1_CTL, 0x2, 0x2);
 	snd_soc_update_bits(codec, TABLA_A_CDC_MBHC_CLK_CTL, 0x8, 0x8);
 
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+    tabla_codec_calibrate_hs_polling(codec, true);
+#else /* QCOM_original */
 	tabla_codec_calibrate_hs_polling(codec);
+#endif /* CONFIG_PANTECH_SND */
 
 	/* don't flip override */
 	bias_value = __tabla_codec_sta_dce(codec, 1, true, true);
@@ -5331,6 +5436,9 @@ static void tabla_codec_report_plug(struct snd_soc_codec *codec, int insertion,
 			}
 			pr_debug("%s: Reporting removal %d(%x)\n", __func__,
 				 jack_type, tabla->hph_status);
+#ifdef CONFIG_PANTECH_SND
+			headset_jack_status = 0;
+#endif
 			tabla_snd_soc_jack_report(tabla,
 						  tabla->mbhc_cfg.headset_jack,
 						  tabla->hph_status,
@@ -5358,6 +5466,9 @@ static void tabla_codec_report_plug(struct snd_soc_codec *codec, int insertion,
 		if (tabla->mbhc_cfg.headset_jack) {
 			pr_debug("%s: Reporting insertion %d(%x)\n", __func__,
 				 jack_type, tabla->hph_status);
+#ifdef CONFIG_PANTECH_SND
+			headset_jack_status = jack_type;
+#endif
 			tabla_snd_soc_jack_report(tabla,
 						  tabla->mbhc_cfg.headset_jack,
 						  tabla->hph_status,
@@ -5789,6 +5900,10 @@ static void tabla_mbhc_calc_rel_thres(struct snd_soc_codec *codec, s16 mv)
 	tabla->mbhc_data.v_b1_huc = tabla_codec_v_sta_dce(codec, DCE, deltamv);
 }
 
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+/*Called under codec resource lock acquisition */
+#endif /* CONFIG_PANTECH_SND */
 static void tabla_mbhc_set_rel_thres(struct snd_soc_codec *codec, s16 mv)
 {
 	tabla_mbhc_calc_rel_thres(codec, mv);
@@ -6136,7 +6251,12 @@ static irqreturn_t tabla_dce_handler(int irq, void *data)
 		priv->buttons_pressed |= mask;
 		wcd9xxx_lock_sleep(core);
 		if (schedule_delayed_work(&priv->mbhc_btn_dwork,
+/* 20130213 LS1@SND long button event issue fix during the sleep */
+#ifdef CONFIG_PANTECH_SND
+					  msecs_to_jiffies(10)) == 0) { // 10ms
+#else /* QCOM_original */
 					  msecs_to_jiffies(400)) == 0) {
+#endif
 			WARN(1, "Button pressed twice without release"
 			     "event\n");
 			wcd9xxx_unlock_sleep(core);
@@ -6239,7 +6359,12 @@ static irqreturn_t tabla_release_handler(int irq, void *data)
 
 	/* revert narrowed release threshold */
 	tabla_mbhc_calc_rel_thres(codec, tabla_mbhc_highest_btn_mv(codec));
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+    tabla_codec_calibrate_hs_polling(codec, true);
+#else /* QCOM_original */
 	tabla_codec_calibrate_hs_polling(codec);
+#endif /* CONFIG_PANTECH_SND */
 
 	if (priv->mbhc_cfg.gpio)
 		msleep(TABLA_MBHC_GPIO_REL_DEBOUNCE_TIME_MS);
@@ -7308,7 +7433,12 @@ static int tabla_mbhc_init_and_calibrate(struct tabla_priv *tabla)
 	tabla_mbhc_cal(codec);
 	tabla_mbhc_calc_thres(codec);
 	tabla->mbhc_cfg.mclk_cb_fn(codec, 0, false);
+/* 20130305 LS1@SND CASE#01074174 CR#459286 - [JB] Release event of headset hook key does not occur */
+#ifdef CONFIG_PANTECH_SND
+    tabla_codec_calibrate_hs_polling(codec, false);
+#else /* QCOM_original */
 	tabla_codec_calibrate_hs_polling(codec);
+#endif /* CONFIG_PANTECH_SND */
 	if (!tabla->mbhc_cfg.gpio) {
 		INIT_WORK(&tabla->hs_correct_plug_work_nogpio,
 				  tabla_hs_correct_plug_nogpio);
@@ -7423,6 +7553,20 @@ int tabla_hs_detect(struct snd_soc_codec *codec,
 	tabla->in_gpio_handler = false;
 	tabla->current_plug = PLUG_TYPE_NONE;
 	tabla->lpi_enabled = false;
+
+#ifdef CONFIG_PANTECH_SND
+#if defined(T_VEGAPVW)
+	if(!headset_gpio_config) {
+		tabla->mbhc_cfg.gpio = 0;
+		tabla->mbhc_cfg.gpio_irq = 0;
+	}
+#elif defined(T_MAGNUS) || defined(T_SIRIUSLTE)
+#else
+	tabla->mbhc_cfg.gpio = 0;
+	tabla->mbhc_cfg.gpio_irq = 0;
+#endif
+#endif
+
 	tabla_get_mbhc_micbias_regs(codec, &tabla->mbhc_bias_regs);
 
 	/* Put CFILT in fast mode by default */
@@ -8249,6 +8393,10 @@ static int __devinit tabla_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 	pr_err("tabla_probe\n");
+/* 20130213 LS1@SND long button event issue fix during the sleep */
+#ifdef CONFIG_PANTECH_SND
+	wake_lock_init(&snd_wakeup, WAKE_LOCK_SUSPEND, "snd_wakeups");
+#endif
 	if (wcd9xxx_get_intf_type() == WCD9XXX_INTERFACE_TYPE_SLIMBUS)
 		ret = snd_soc_register_codec(&pdev->dev, &soc_codec_dev_tabla,
 			tabla_dai, ARRAY_SIZE(tabla_dai));

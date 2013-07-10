@@ -17,6 +17,9 @@
 
 #include "board-8960.h"
 
+#include "BOARD_REV.h"
+//#include "../../../../include/pantech/BOARD_REV.h"
+
 #define VREG_CONSUMERS(_id) \
 	static struct regulator_consumer_supply vreg_consumers_##_id[]
 
@@ -31,9 +34,12 @@ VREG_CONSUMERS(L2) = {
 	REGULATOR_SUPPLY("8921_l2",		NULL),
 	REGULATOR_SUPPLY("dsi_vdda",		"mipi_dsi.1"),
 	REGULATOR_SUPPLY("dsi_pll_vdda",	"mdp.0"),
-	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.0"),
+	
+#ifdef CONFIG_PANTECH_CAMERA
+    REGULATOR_SUPPLY("mipi_csi_vdd",    "msm_csid.0"),
 	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.1"),
 	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.2"),
+#endif
 };
 VREG_CONSUMERS(L3) = {
 	REGULATOR_SUPPLY("8921_l3",		NULL),
@@ -72,19 +78,26 @@ VREG_CONSUMERS(L10) = {
 };
 VREG_CONSUMERS(L11) = {
 	REGULATOR_SUPPLY("8921_l11",		NULL),
+#ifndef CONFIG_PANTECH_CAMERA
 	REGULATOR_SUPPLY("cam_vana",		"4-001a"),
 	REGULATOR_SUPPLY("cam_vana",		"4-006c"),
 	REGULATOR_SUPPLY("cam_vana",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vana",		"4-0020"),
 	REGULATOR_SUPPLY("cam_vana",		"4-0034"),
+#endif
 };
 VREG_CONSUMERS(L12) = {
 	REGULATOR_SUPPLY("8921_l12",		NULL),
+#ifndef CONFIG_PANTECH_CAMERA
 	REGULATOR_SUPPLY("cam_vdig",		"4-001a"),
 	REGULATOR_SUPPLY("cam_vdig",		"4-006c"),
 	REGULATOR_SUPPLY("cam_vdig",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vdig",		"4-0020"),
+#endif
 	REGULATOR_SUPPLY("cam_vdig",		"4-0034"),
+#ifdef CONFIG_PANTECH_FB_MSM_MHL_SII9244
+	REGULATOR_SUPPLY("mhl_vcc",		"hdmi_msm.0"),
+#endif
 };
 VREG_CONSUMERS(L14) = {
 	REGULATOR_SUPPLY("8921_l14",		NULL),
@@ -95,14 +108,22 @@ VREG_CONSUMERS(L15) = {
 };
 VREG_CONSUMERS(L16) = {
 	REGULATOR_SUPPLY("8921_l16",		NULL),
+#ifndef CONFIG_PANTECH_CAMERA
 	REGULATOR_SUPPLY("cam_vaf",		"4-001a"),
 	REGULATOR_SUPPLY("cam_vaf",		"4-006c"),
 	REGULATOR_SUPPLY("cam_vaf",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vaf",		"4-0020"),
 	REGULATOR_SUPPLY("cam_vaf",		"4-0034"),
+#endif
 };
 VREG_CONSUMERS(L17) = {
 	REGULATOR_SUPPLY("8921_l17",		NULL),
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE) || defined(CONFIG_MACH_MSM8960_VEGAPVW)
+	REGULATOR_SUPPLY("dsi_vddio",		"mipi_dsi.1"),
+#endif
+#ifdef CONFIG_PANTECH_MHL_VCC_3P3
+REGULATOR_SUPPLY("mhl_vcc_3p3",		"hdmi_msm.0"),
+#endif
 };
 VREG_CONSUMERS(L18) = {
 	REGULATOR_SUPPLY("8921_l18",		NULL),
@@ -115,9 +136,13 @@ VREG_CONSUMERS(L22) = {
 };
 VREG_CONSUMERS(L23) = {
 	REGULATOR_SUPPLY("8921_l23",		NULL),
+#if !defined(CONFIG_MACH_MSM8960_SIRIUSLTE) && !defined(CONFIG_MACH_MSM8960_VEGAPVW)
 	REGULATOR_SUPPLY("dsi_vddio",		"mipi_dsi.1"),
+#endif
 	REGULATOR_SUPPLY("dsi_pll_vddio",	"mdp.0"),
+#if !defined(CONFIG_MACH_MSM8960_MAGNUS)
 	REGULATOR_SUPPLY("hdmi_avdd",		"hdmi_msm.0"),
+#endif
 	REGULATOR_SUPPLY("pll_vdd",		"pil_riva"),
 	REGULATOR_SUPPLY("pll_vdd",		"pil_qdsp6v4.1"),
 	REGULATOR_SUPPLY("pll_vdd",		"pil_qdsp6v4.2"),
@@ -213,11 +238,13 @@ VREG_CONSUMERS(LVS4) = {
 };
 VREG_CONSUMERS(LVS5) = {
 	REGULATOR_SUPPLY("8921_lvs5",		NULL),
+#ifndef CONFIG_PANTECH_CAMERA
 	REGULATOR_SUPPLY("cam_vio",		"4-001a"),
 	REGULATOR_SUPPLY("cam_vio",		"4-006c"),
 	REGULATOR_SUPPLY("cam_vio",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vio",		"4-0020"),
 	REGULATOR_SUPPLY("cam_vio",		"4-0034"),
+#endif
 };
 VREG_CONSUMERS(LVS6) = {
 	REGULATOR_SUPPLY("8921_lvs6",		NULL),
@@ -246,7 +273,9 @@ VREG_CONSUMERS(EXT_L2) = {
 VREG_CONSUMERS(EXT_3P3V) = {
 	REGULATOR_SUPPLY("ext_3p3v",		NULL),
 	REGULATOR_SUPPLY("vdd_ana",		"3-005b"),
+#if 0 // !defined(CONFIG_MACH_MSM8960_CHEETAH) || !defined(CONFIG_MACH_MSM8960_STARQ) || !defined(CONFIG_MACH_MSM8960_EF45K) || !defined(CONFIG_MACH_MSM8960_EF46L) || !defined(CONFIG_MACH_MSM8960_EF47S) || !defined(CONFIG_MACH_MSM8960_RACERJ)
 	REGULATOR_SUPPLY("vdd_lvds_3p3v",	"mipi_dsi.1"),
+#endif
 	REGULATOR_SUPPLY("mhl_usb_hs_switch",	"msm_otg"),
 };
 VREG_CONSUMERS(EXT_OTG_SW) = {
@@ -531,16 +560,48 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 	RPM_LDO(L5,	 0, 1, 0, 2950000, 2950000, NULL,      0, 0),
 	RPM_LDO(L6,	 0, 1, 0, 2950000, 2950000, NULL,      0, 0),
 	RPM_LDO(L7,	 1, 1, 0, 1850000, 2950000, NULL,      10000, 10000),
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE)
+#if (BOARD_VER == PT10)
+	RPM_LDO(L8,	 0, 1, 0, 3100000, 3100000, NULL,      0, 0),
+#else
+	RPM_LDO(L8,  0, 1, 0, 2800000, 2800000, NULL,	   0, 0),
+#endif
+#elif defined(CONFIG_MACH_MSM8960_VEGAPVW) 
+	RPM_LDO(L8,	 0, 1, 0, 3100000, 3100000, NULL,      0, 0),
+#else
 	RPM_LDO(L8,	 0, 1, 0, 2800000, 3000000, NULL,      0, 0),
+#endif
 	RPM_LDO(L9,	 0, 1, 0, 3000000, 3000000, NULL,      0, 0),
 	RPM_LDO(L10,	 0, 1, 0, 3000000, 3000000, NULL,      0, 0),
+#if defined(CONFIG_PANTECH_CAMERA) && defined(CONFIG_MACH_MSM8960_SIRIUSLTE) || defined(CONFIG_MACH_MSM8960_VEGAPVW)
+	RPM_LDO(L11,	 0, 1, 0, 2800000, 2800000, NULL,      0, 0),
+#else
 	RPM_LDO(L11,	 0, 1, 0, 2850000, 2850000, NULL,      0, 0),
+#endif
 	RPM_LDO(L12,	 0, 1, 0, 1200000, 1200000, "8921_s4", 0, 0),
 	RPM_LDO(L14,	 0, 1, 0, 1800000, 1800000, NULL,      0, 0),
 	RPM_LDO(L15,	 0, 1, 0, 1800000, 2950000, NULL,      0, 0),
+#if defined(CONFIG_PANTECH_CAMERA) && defined(CONFIG_MACH_MSM8960_SIRIUSLTE)
 	RPM_LDO(L16,	 0, 1, 0, 2800000, 2800000, NULL,      0, 0),
+#else
+	RPM_LDO(L16,	 0, 1, 0, 2800000, 2800000, NULL,      0, 0),
+#endif
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE)
+#if (BOARD_VER == PT10)
+	RPM_LDO(L17,	 0, 1, 0, 2200000, 2200000, NULL,      0, 0),
+#else
+	RPM_LDO(L17,	 0, 1, 0, 1800000, 1800000, NULL,	   0, 0),
+#endif
+#elif defined(CONFIG_MACH_MSM8960_VEGAPVW) /* mipi dsi1 VDD3 add by shinjaegon */
+	RPM_LDO(L17,	 0, 1, 0, 2200000, 2200000, NULL,      0, 0),
+#else
 	RPM_LDO(L17,	 0, 1, 0, 1800000, 2950000, NULL,      0, 0),
+#endif
+#if defined(CONFIG_SKY_ISDBT) && defined(CONFIG_MACH_MSM8960_SIRIUSLTE)
+	RPM_LDO(L18,	 0, 1, 0, 1200000, 1200000, "8921_s4", 0, 0),
+#else
 	RPM_LDO(L18,	 0, 1, 0, 1300000, 1300000, "8921_s4", 0, 0),
+#endif
 	RPM_LDO(L21,	 0, 1, 0, 1900000, 1900000, "8921_s8", 0, 0),
 	RPM_LDO(L22,	 0, 1, 0, 2750000, 2750000, NULL,      0, 0),
 	RPM_LDO(L23,	 1, 1, 1, 1800000, 1800000, "8921_s8", 10000, 10000),

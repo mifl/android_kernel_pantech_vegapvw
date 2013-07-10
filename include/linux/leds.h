@@ -17,6 +17,13 @@
 #include <linux/rwsem.h>
 #include <linux/timer.h>
 
+//++ p11309 - 2012.09.06
+//#define LED_CLASS_USE_WAKE_LOCK
+#ifdef LED_CLASS_USE_WAKE_LOCK	
+#include <linux/wakelock.h>
+#endif
+//-- p11309
+
 struct device;
 /*
  * LED Core
@@ -30,6 +37,14 @@ enum led_brightness {
 
 struct led_classdev {
 	const char		*name;
+	
+//++ p11309 + 2012.09.06 add wake_lock
+	int			last_brightness;
+
+#ifdef LED_CLASS_USE_WAKE_LOCK	
+	struct wake_lock led_class_wake_lock;
+#endif
+//-- p11309
 	int			 brightness;
 	int			 max_brightness;
 	int			 flags;
@@ -38,6 +53,10 @@ struct led_classdev {
 #define LED_SUSPENDED		(1 << 0)
 	/* Upper 16 bits reflect control information */
 #define LED_CORE_SUSPENDRESUME	(1 << 16)
+
+//++ p11309 - 2012.09.09 for LED Power Save
+#define LED_ENABLE_POWER_SAVE	(1 << 8)
+//-- p11309
 
 	/* Set LED brightness level */
 	/* Must not sleep, use a workqueue if needed */
@@ -54,9 +73,15 @@ struct led_classdev {
 	 * Deactivate blinking again when the brightness is set to a fixed
 	 * value via the brightness_set() callback.
 	 */
-	int		(*blink_set)(struct led_classdev *led_cdev,
-				     unsigned long *delay_on,
-				     unsigned long *delay_off);
+//++ p11309 - 2012.09.09 for adding Power Save Mode
+//	int (*blink_set) (struct led_classdev *led_cdev, 
+//			unsigned long *delay_on, 
+//			unsigned long *delay_off);
+	int (*blink_set) (struct led_classdev *led_cdev, 
+			unsigned long *delay_on, 
+			unsigned long *delay_off, 
+			int led_percent_level);
+//--p11309
 
 	struct device		*dev;
 	struct list_head	 node;			/* LED Device list */

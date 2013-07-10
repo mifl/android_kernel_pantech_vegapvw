@@ -22,6 +22,10 @@
 
 #include "smd_private.h"
 
+#ifdef CONFIG_PANTECH_ERR_CRASH_LOGGING
+#include "sky_sys_reset.h"
+#endif
+
 #define BUILD_ID_LENGTH 32
 
 enum {
@@ -702,7 +706,11 @@ arch_initcall(socinfo_init_sysdev);
 static void * __init setup_dummy_socinfo(void)
 {
 	if (machine_is_msm8960_rumi3() || machine_is_msm8960_sim() ||
-	    machine_is_msm8960_cdp())
+	    machine_is_msm8960_cdp()
+#if defined(T_SIRIUSLTE) || defined(T_VEGAPVW)  || defined(T_MAGNUS)
+	    || machine_is_msm8960_siriuslte() || machine_is_msm8960_vegapvw() || machine_is_msm8960_magnus()
+#endif
+	    )
 		dummy_socinfo.id = 87;
 	else if (machine_is_apq8064_rumi3() || machine_is_apq8064_sim())
 		dummy_socinfo.id = 109;
@@ -725,7 +733,10 @@ static void * __init setup_dummy_socinfo(void)
 
 int __init socinfo_init(void)
 {
-	socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID, sizeof(struct socinfo_v7));
+#if defined(CONFIG_PANTECH_PMIC)
+    oem_pm_smem_vendor1_data_type *smem_vendor1_data;
+    smem_vendor1_data = smem_alloc(SMEM_ID_VENDOR1, sizeof(oem_pm_smem_vendor1_data_type));
+#endif
 
 	if (!socinfo)
 		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
@@ -839,6 +850,17 @@ int __init socinfo_init(void)
 		pr_err("%s: Unknown format found\n", __func__);
 		break;
 	}
+
+#if defined(CONFIG_PANTECH_PMIC)
+    pr_info("smem_vendor1_data->power_on_reason : 0x%x\n", smem_vendor1_data->power_on_reason);
+    pr_info("smem_vendor1_data->factory_cable_adc : %d\n", smem_vendor1_data->factory_cable_adc);
+    pr_info("smem_vendor1_data->battery_id_adc : %d\n", smem_vendor1_data->battery_id_adc);
+    pr_info("smem_vendor1_data->hw_rev_adc : %d\n", smem_vendor1_data->hw_rev_adc);
+    pr_info("smem_vendor1_data->power_on_mode : %d\n", smem_vendor1_data->power_on_mode);
+    pr_info("smem_vendor1_data->silent_boot_mode : %d\n", smem_vendor1_data->silent_boot_mode);
+    pr_info("smem_vendor1_data->hw_rev : %d\n", smem_vendor1_data->hw_rev);
+    pr_info("smem_vendor1_data->battery_id : %d\n", smem_vendor1_data->battery_id);
+#endif
 
 	return 0;
 }

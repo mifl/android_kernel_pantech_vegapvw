@@ -698,6 +698,20 @@ struct cvs_start_record_cmd {
 #define VOICE_CMD_GET_PARAM				0x00011007
 #define VOICE_EVT_GET_PARAM_ACK				0x00011008
 
+#if defined(CONFIG_PANTECH_SND) && defined(CONFIG_MACH_MSM8960_VEGAPVW) // FEATURE_PANTECH_SND_ELECTOVOX
+#define TX_VOICE_ELECTOVOX_MODULE			(0x10003000)
+#define TX_VOICE_ELECTOVOX_PARAM			(0x10003001)
+#define TX_VOICE_ELECTOVOX_NR_ON			(0x10003002)
+#define TX_VOICE_ELECTOVOX_NR_OFF			(0x10003003)
+#define TX_VOICE_ELECTOVOX_NR_HANDSET_ON		(0x10003004)
+#define TX_VOICE_ELECTOVOX_NR_HEADSET_ON		(0x10003005)
+#define TX_VOICE_ELECTOVOX_NR_SPEAKER_ON		(0x10003006)
+
+// This is not for ElectoVox Off but for "NR mode" off.
+// To Turn off ElectoVox, use TX_VOICE_ELECTOVOX_NR_OFF.
+#define TX_VOICE_ELECTOVOX_NR_MODE_OFF			(0x10003007)
+#endif
+
 struct vss_ivocproc_cmd_create_full_control_session_t {
 	uint16_t direction;
 	/*
@@ -982,6 +996,32 @@ enum {
 	RX_PATH = 0,
 	TX_PATH,
 };
+
+#if defined(CONFIG_PANTECH_SND) && defined(CONFIG_MACH_MSM8960_VEGAPVW) // FEATURE_PANTECH_SND_ELECTOVOX
+struct set_param_cmd_payload_t {
+	uint32_t payload_address; // NULL for inband param
+	uint32_t payload_size; // bytes of all data below this position 
+	uint32_t module_id;
+	uint32_t param_id;
+    	uint16_t param_size; // = 0x4; //10 bytes,
+	uint16_t reserved; // reserved 
+} __packed;
+
+struct oempp_arg_t {
+	uint16_t enable;
+	uint16_t reserved; // reserved for next buffer align or 32bit parameter
+	//int16_t buffer[11]; // start aligned at 4 bytes(64bit)
+	//uint16_t reserved; // total end aligned at 4bytes
+} __packed;
+
+struct oem_pp_set_param_send_cmd {
+	struct apr_hdr hdr;
+        struct set_param_cmd_payload_t setparam_payload; 
+	struct oempp_arg_t oempp_args;
+} __packed;
+
+int voice_send_set_oempp_enable_cmd(int cmd);
+#endif
 
 /* called  by alsa driver */
 int voc_set_pp_enable(uint16_t session_id, uint32_t module_id, uint32_t enable);

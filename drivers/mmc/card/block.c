@@ -57,6 +57,7 @@ MODULE_ALIAS("mmc:block");
 #define INAND_CMD38_ARG_SECERASE 0x80
 #define INAND_CMD38_ARG_SECTRIM1 0x81
 #define INAND_CMD38_ARG_SECTRIM2 0x88
+#define MMC_BLK_TIMEOUT_MS  (30 * 1000)        /* 30 sec timeout */
 
 #define MMC_SANITIZE_REQ_TIMEOUT 240000 /* msec */
 
@@ -128,9 +129,9 @@ struct mmc_blk_data {
 static DEFINE_MUTEX(open_lock);
 
 enum {
-	MMC_PACKED_N_IDX = -1,
-	MMC_PACKED_N_ZERO,
-	MMC_PACKED_N_SINGLE,
+        MMC_PACKED_N_IDX = -1,
+        MMC_PACKED_N_ZERO,
+        MMC_PACKED_N_SINGLE,
 };
 
 module_param(perdev_minors, int, 0444);
@@ -138,8 +139,8 @@ MODULE_PARM_DESC(perdev_minors, "Minors numbers to allocate per device");
 
 static inline void mmc_blk_clear_packed(struct mmc_queue_req *mqrq)
 {
-	mqrq->packed_cmd = MMC_PACKED_NONE;
-	mqrq->packed_num = MMC_PACKED_N_ZERO;
+        mqrq->packed_cmd = MMC_PACKED_NONE;
+        mqrq->packed_num = MMC_PACKED_N_ZERO;
 }
 
 static struct mmc_blk_data *mmc_blk_get(struct gendisk *disk)
@@ -460,6 +461,107 @@ out:
 	return ERR_PTR(err);
 }
 
+#if 0 /* Not use in PremiaV */
+// [[[[[[[[[[[ 2012.04.04 added by P10458 for OneSeg's CPRM
+static u32 mmc_read_card_status(struct mmc_card *card)
+{
+	struct mmc_command cmd;
+	int err;
+
+	memset(&cmd, 0, sizeof(struct mmc_command));
+	cmd.opcode = MMC_SEND_STATUS;
+	if (!mmc_host_is_spi(card->host))
+		cmd.arg = card->rca << 16;
+	cmd.flags = MMC_RSP_SPI_R2 | MMC_RSP_R1 | MMC_CMD_AC;
+	err = mmc_wait_for_cmd(card->host, &cmd, 0);
+	if (err)
+		printk(KERN_ERR "%s: error %d sending status comand",
+		       "mmc_blk_ioctl_cmd_extend", err);
+	return cmd.resp[0];
+}
+
+static int mmc_blk_ioctl_cmd_extend(struct block_device *bdev, struct mmc_ioc_cmd_extend __user *data)
+{
+	int err = 0;
+	struct mmc_ioc_cmd_extend *pcard_data_to_user;
+	struct mmc_card *pcard_temp, *pCard;
+	struct mmc_blk_data *md;
+
+  pcard_data_to_user = (struct mmc_ioc_cmd_extend *)kmalloc(sizeof(struct mmc_ioc_cmd_extend), GFP_KERNEL);
+  pcard_temp = (struct mmc_card *)kmalloc(sizeof(struct mmc_card), GFP_KERNEL);
+  
+	//printk("mmc_blk_ioctl_cmd_extend ++\n");
+
+	mmc_read_card_info(pcard_temp);
+	memcpy(&pcard_data_to_user->ssr, &pcard_temp->ssr, sizeof(struct sd_ssr));
+	pcard_data_to_user->ccs = pcard_temp->ccs;
+	pcard_data_to_user->capacity_of_protected_area_in_byte = pcard_temp->capacity_of_protected_area_in_byte;
+	pcard_data_to_user->card_status = 0;
+	pcard_data_to_user->capacity = pcard_temp->capacity;
+
+	//printk("mmc_blk_get ++\n");
+	md = mmc_blk_get(bdev->bd_disk);
+	//printk("mmc_blk_get --\n");
+
+	if (!md) {
+		err = -EINVAL;
+		goto cmd_done;
+	}
+
+	pCard = md->queue.card;
+	if (IS_ERR(pCard)) {
+		err = PTR_ERR(pCard);
+		goto cmd_done;
+	}
+
+	//printk("mmc_claim_host ++\n");
+	mmc_claim_host(pCard->host);
+	//printk("mmc_claim_host --\n");
+
+	//printk("mmc_read_card_status ++\n");
+	pcard_data_to_user->card_status = mmc_read_card_status(pCard);
+	//printk("mmc_read_card_status --\n");
+
+	//printk("mmc_read_sd_status ++\n");
+	//mmc_read_sd_status(pCard);
+	//printk("mmc_read_sd_status --\n");
+	//memcpy(&pcard_data_to_user->ssr, &pCard->ssr, sizeof(struct sd_ssr));
+#if 0
+	printk("############################################\n");
+	printk("card_status=[%08x]\n", pcard_data_to_user->card_status);
+	printk("ccs=[%d]\n", pcard_data_to_user->ccs);
+	printk("pa cap=[%d]\n", pcard_data_to_user->capacity_of_protected_area_in_byte);
+	printk("user cap=[%d]\n", pcard_data_to_user->capacity);
+	printk("secure_mode=[%d]\n", pcard_data_to_user->ssr.secure_mode);
+	printk("############################################\n");	
+#endif
+	if(!access_ok(VERIFY_WRITE, data, sizeof(struct mmc_ioc_cmd_extend))) {
+		printk("invalid user area\n");	
+		err = -EFAULT;
+		goto cmd_rel_host;
+	}
+
+  //printk("card_data_to_user \n");
+	if (copy_to_user((void __user*)data, (void*)pcard_data_to_user, sizeof(struct mmc_ioc_cmd_extend))) {
+		printk("fail to copy to user\n");
+		err = -EFAULT;
+		goto cmd_rel_host;
+	}
+
+cmd_rel_host:
+	mmc_release_host(pCard->host);
+	
+cmd_done:
+	mmc_blk_put(md);
+  kfree(pcard_data_to_user);
+  kfree(pcard_temp);
+
+	//printk("mmc_blk_ioctl_cmd_extend --, err=[%d]\n", err);
+	return err;
+}
+// ]]]]]]]]]]] 2012.04.04 added by P10458 for OneSeg's CPRM
+#endif
+
 static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	struct mmc_ioc_cmd __user *ic_ptr)
 {
@@ -597,6 +699,12 @@ static int mmc_blk_ioctl(struct block_device *bdev, fmode_t mode,
 	int ret = -EINVAL;
 	if (cmd == MMC_IOC_CMD)
 		ret = mmc_blk_ioctl_cmd(bdev, (struct mmc_ioc_cmd __user *)arg);
+#if 0 /* Not use in PremiaV */
+	// [[[[[[[[[[[ 2012.04.04 added by P10458 for OneSeg's CPRM
+	else if(cmd == MMC_IOC_CMD_EXTEND)
+		ret = mmc_blk_ioctl_cmd_extend(bdev, (struct mmc_ioc_cmd_extend __user *)arg);
+	// ]]]]]]]]]]] 2012.04.04 added by P10458 for OneSeg's CPRM
+#endif
 	return ret;
 }
 
@@ -1169,11 +1277,25 @@ static int mmc_blk_err_check(struct mmc_card *card,
 	 */
 	if (!mmc_host_is_spi(card->host) && rq_data_dir(req) != READ) {
 		u32 status;
+		unsigned long timeout;
+
+		timeout = jiffies + msecs_to_jiffies(MMC_BLK_TIMEOUT_MS);
 		do {
 			int err = get_card_status(card, &status, 5);
 			if (err) {
 				pr_err("%s: error %d requesting status\n",
 				       req->rq_disk->disk_name, err);
+				return MMC_BLK_CMD_ERR;
+			}
+
+			/* Timeout if the device never becomes ready for data
+			 * and never leaves the program state.
+			 */
+			if (time_after(jiffies, timeout)) {
+				pr_err("%s: Card stuck in programming state!"\
+					" %s %s\n", mmc_hostname(card->host),
+					req->rq_disk->disk_name, __func__);
+
 				return MMC_BLK_CMD_ERR;
 			}
 			/*
@@ -1802,7 +1924,7 @@ static int mmc_blk_cmd_err(struct mmc_blk_data *md, struct mmc_card *card,
 	} else {
 		if (mq_rq->packed_cmd == MMC_PACKED_NONE)
 			ret = blk_end_request(req, 0, brq->data.bytes_xfered);
-	}
+		}
 	return ret;
 }
 
@@ -2016,7 +2138,7 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 					blk_rq_cur_bytes(req));
 	} else {
 		mmc_blk_abort_packed_req(mq_rq);
-	}
+		}
 
  start_new_req:
 	if (rqc) {
@@ -2404,9 +2526,9 @@ bkops_check_threshold_fails:
 num_wr_reqs_to_start_packing_fail:
 	device_remove_file(disk_to_dev(md->disk), &md->power_ro_lock);
 power_ro_lock_fail:
-	device_remove_file(disk_to_dev(md->disk), &md->force_ro);
+		device_remove_file(disk_to_dev(md->disk), &md->force_ro);
 force_ro_fail:
-	del_gendisk(md->disk);
+		del_gendisk(md->disk);
 
 	return ret;
 }

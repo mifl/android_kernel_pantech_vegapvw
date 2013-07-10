@@ -76,6 +76,9 @@ msm_mipi-objs := mipi_dsi.o mipi_dsi_host.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI) += msm_mipi.o
 
 # MIPI manufacture
+obj-$(CONFIG_FB_MSM_MIPI_DSI_RENESAS_HD) += mipi_renesas_hd.o
+obj-$(CONFIG_FB_MSM_MIPI_DSI_ROHM) += mipi_rohm.o
+obj-$(CONFIG_FB_MSM_MIPI_DSI_SAMSUNG_OLED_PREMIA) += mipi_samsung_oled_premia.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_TOSHIBA) += mipi_toshiba.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_NOVATEK) += mipi_novatek.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_ORISE) += mipi_orise.o
@@ -130,6 +133,9 @@ obj-y += mipi_chimei_wxga_pt.o
 obj-y += mipi_chimei_wuxga.o
 obj-y += mipi_truly_video_wvga_pt.o
 else
+obj-$(CONFIG_FB_MSM_MIPI_RENESAS_VIDEO_HD) += mipi_renesas_video_hd.o
+obj-$(CONFIG_FB_MSM_MIPI_SAMSUNG_OLED_VIDEO_HD) += mipi_samsung_oled_premia_video_hd.o
+obj-$(CONFIG_FB_MSM_MIPI_ROHM_VIDEO_HD) += mipi_rohm_video_hd.o
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT) += mipi_toshiba_video_wvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT) += mipi_toshiba_video_wsvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WUXGA) += mipi_toshiba_video_wuxga.o
@@ -194,5 +200,14 @@ endif
 
 obj-$(CONFIG_MSM_VIDC_1080P) += vidc/
 obj-$(CONFIG_MSM_VIDC_720P) += vidc/
+
+ifeq ($(CONFIG_MACH_MSM8960_VEGAPVW),y)
+obj-$(CONFIG_PANTECH_FB_MSM_MHL_SII9244) += mhl_sii9244_vegapvw.o
+obj-$(CONFIG_PANTECH_FB_MSM_MHL_SII9244) += mhl_sii9244_driver_vegapvw.o
+else
+obj-$(CONFIG_PANTECH_FB_MSM_MHL_SII9244) += mhl_sii9244.o
+obj-$(CONFIG_PANTECH_FB_MSM_MHL_SII9244) += mhl_sii9244_driver.o
+endif
+
 clean:
 	rm *.o .*cmd

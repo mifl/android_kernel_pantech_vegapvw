@@ -650,11 +650,11 @@ static void diag_update_msg_mask(int start, int end , uint8_t *buf)
 				*(uint32_t *)(actual_last_ptr) = end;
 			}
 			if (CHK_OVERFLOW(ptr_buffer_start, ptr, ptr_buffer_end,
-					  (((end - start)+1)*4))) {
+						  (((end - start)+1)*4))) {
 				pr_debug("diag: update ssid start %d, end %d\n",
 								 start, end);
-				memcpy(ptr, buf , ((end - start)+1)*4);
-			} else
+					memcpy(ptr, buf , ((end - start)+1)*4);
+				} else
 				pr_alert("diag: Not enough space MSG_MASK\n");
 			found = 1;
 			break;
@@ -1012,6 +1012,11 @@ void diag_send_msg_mask_update(smd_channel_t *ch, int updated_ssid_first,
 	mutex_unlock(&driver->diag_cntl_mutex);
 }
 
+//Tarial QXDM mask control
+#ifdef FEATURE_PANTECH_QXDM_MASK_ONOFF
+extern bool qxdm_mask_control;
+#endif
+
 static int diag_process_apps_pkt(unsigned char *buf, int len)
 {
 	uint16_t subsys_cmd_code;
@@ -1024,6 +1029,17 @@ static int diag_process_apps_pkt(unsigned char *buf, int len)
 #if defined(CONFIG_DIAG_OVER_USB)
 	int payload_length;
 	unsigned char *ptr;
+#endif
+
+	//Tarial QXDM mask control
+#ifdef FEATURE_PANTECH_QXDM_MASK_ONOFF
+	if(!qxdm_mask_control){
+		if (*buf == 0x60){	// event
+			*(int *)(buf+1) = 0;
+		} else if ((*buf == 0x73) && (*(int *)(buf+4) == 3)) { //log mask update
+			*(int *)(buf+4) = 0;
+		}
+	}
 #endif
 
 	/* Set log masks */
@@ -1125,6 +1141,24 @@ static int diag_process_apps_pkt(unsigned char *buf, int len)
 			for (i = 0; i < 8 + ssid_range; i++)
 				*(driver->apps_rsp_buf + i) = *(buf+i);
 			*(driver->apps_rsp_buf + 6) = 0x1;
+
+#ifdef FEATURE_PANTECH_QXDM_MASK_ONOFF
+	if(!qxdm_mask_control){
+			rt_mask = 0;
+			diag_set_msg_mask(rt_mask);
+			diag_update_userspace_clients(MSG_MASKS_TYPE);
+			if (driver->ch_cntl)
+				diag_send_msg_mask_update(driver->ch_cntl,
+						ALL_SSID, ALL_SSID, MODEM_PROC);
+			if (driver->chqdsp_cntl)
+				diag_send_msg_mask_update(driver->chqdsp_cntl,
+						ALL_SSID, ALL_SSID, QDSP_PROC);
+			if (driver->ch_wcnss_cntl)
+				diag_send_msg_mask_update(driver->ch_wcnss_cntl,
+						ALL_SSID, ALL_SSID, WCNSS_PROC);
+			
+		}else{
+#endif
 			if (driver->ch_cntl)
 				diag_send_msg_mask_update(driver->ch_cntl,
 					 ssid_first, ssid_last, MODEM_PROC);
@@ -1134,6 +1168,9 @@ static int diag_process_apps_pkt(unsigned char *buf, int len)
 			if (driver->ch_wcnss_cntl)
 				diag_send_msg_mask_update(driver->ch_wcnss_cntl,
 					 ssid_first, ssid_last, WCNSS_PROC);
+#ifdef FEATURE_PANTECH_QXDM_MASK_ONOFF
+     }
+#endif
 			ENCODE_RSP_AND_SEND(8 + ssid_range - 1);
 			return 0;
 		} else

@@ -253,7 +253,7 @@ int mdp4_dtv_pipe_commit(int cndx, int wait)
 		if (pipe->ov_blt_addr)
 			mdp4_dtv_wait4ov(cndx);
 		else
-			mdp4_dtv_wait4dmae(cndx);
+		mdp4_dtv_wait4dmae(cndx);
 	}
 	return cnt;
 }
@@ -935,8 +935,8 @@ void mdp4_dmae_done_dtv(void)
 
 	spin_lock(&vctrl->spin_lock);
 	if (vctrl->blt_change) {
-		mdp4_overlayproc_cfg(pipe);
-		mdp4_overlay_dmae_xy(pipe);
+			mdp4_overlayproc_cfg(pipe);
+			mdp4_overlay_dmae_xy(pipe);
 		vctrl->blt_change = 0;
 	}
 
@@ -1044,7 +1044,7 @@ static void mdp4_dtv_do_blt(struct msm_fb_data_type *mfd, int enable)
 			pr_warning("%s: ctrl=%d blt_base NOT assigned\n",
 				__func__, cndx);
 			return;
-		}
+	}
 	}
 
 	pr_debug("%s: mode=%d, ctrl=%d, enable=%d ov_blt_addr=%x\n",
@@ -1080,8 +1080,8 @@ static void mdp4_dtv_do_blt(struct msm_fb_data_type *mfd, int enable)
 				__func__, dtv_enabled);
 			vctrl->blt_change++;
 
-		}
-		spin_unlock_irqrestore(&vctrl->spin_lock, flag);
+	}
+	spin_unlock_irqrestore(&vctrl->spin_lock, flag);
 		if (dtv_enabled)
 			mdp4_dtv_wait4dmae_done(0);
 	} else if (ctrl == MDP4_OVERLAY_BLT_SWITCH_TG_OFF) {
@@ -1090,7 +1090,7 @@ static void mdp4_dtv_do_blt(struct msm_fb_data_type *mfd, int enable)
 		if (dtv_enabled) {
 			mdp4_dtv_wait4dmae_done(0);
 			MDP_OUTP(MDP_BASE + DTV_BASE, 0);
-			msleep(20);
+		msleep(20);
 		}
 		mdp4_overlayproc_cfg(pipe);
 		mdp4_overlay_dmae_xy(pipe);
@@ -1105,7 +1105,7 @@ static void mdp4_dtv_do_blt(struct msm_fb_data_type *mfd, int enable)
 		mdp4_overlay_dmae_xy(pipe);
 	} else
 		pr_err("%s: ctrl=%d is not supported\n", __func__, ctrl);
-}
+	}
 
 void mdp4_dtv_overlay_blt_start(struct msm_fb_data_type *mfd)
 {

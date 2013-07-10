@@ -69,6 +69,10 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	struct msm_fb_data_type *mfd;
 	struct msm_panel_info *pinfo;
 
+#if 0//defined(CONFIG_MACH_MSM8960_MAGNUS)
+	struct mipi_panel_info *mipi;
+#endif
+
 	pr_debug("%s+:\n", __func__);
 
 	mfd = platform_get_drvdata(pdev);
@@ -78,6 +82,24 @@ static int mipi_dsi_off(struct platform_device *pdev)
 		mutex_lock(&mfd->dma->ov_mutex);
 	else
 		down(&mfd->dma->mutex);
+
+#if 0//defined(CONFIG_MACH_MSM8960_MAGNUS)
+	mipi  = &mfd->panel_info.mipi;
+
+	if (mipi->force_clk_lane_hs) {
+		u32 tmp;
+
+		tmp = MIPI_INP(MIPI_DSI_BASE + 0xA8);
+		tmp &= ~(1<<28);
+		MIPI_OUTP(MIPI_DSI_BASE + 0xA8, tmp);
+		wmb();
+		printk("[MIPI: shinbrad Low speed Clk Set(Off Sequence) .................................................]\n");
+	}
+#endif
+
+#if defined(CONFIG_MACH_MSM8960_MAGNUS)
+	ret = panel_next_off(pdev);
+#endif
 
 	if (mfd->panel_info.type == MIPI_CMD_PANEL) {
 		mipi_dsi_prepare_clocks();
@@ -92,8 +114,9 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	 * Desctiption: change to DSI_CMD_MODE since it needed to
 	 * tx DCS dsiplay off comamnd to panel
 	 */
+#ifndef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
 	mipi_dsi_op_mode_config(DSI_CMD_MODE);
-
+#endif
 	if (mfd->panel_info.type == MIPI_CMD_PANEL) {
 		if (pinfo->lcd.vsync_enable) {
 			if (pinfo->lcd.hw_vsync_mode && vsync_gpio >= 0) {
@@ -103,9 +126,9 @@ static int mipi_dsi_off(struct platform_device *pdev)
 			mipi_dsi_set_tear_off(mfd);
 		}
 	}
-
+#if !defined(CONFIG_MACH_MSM8960_MAGNUS)
 	ret = panel_next_off(pdev);
-
+#endif
 #ifdef CONFIG_MSM_BUS_SCALING
 	mdp_bus_scale_update_request(0);
 #endif
@@ -246,7 +269,7 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	}
 
 	mipi_dsi_host_init(mipi);
-
+#if 0
 	if (mipi->force_clk_lane_hs) {
 		u32 tmp;
 
@@ -255,6 +278,7 @@ static int mipi_dsi_on(struct platform_device *pdev)
 		MIPI_OUTP(MIPI_DSI_BASE + 0xA8, tmp);
 		wmb();
 	}
+#endif
 
 	if (mdp_rev >= MDP_REV_41)
 		mutex_lock(&mfd->dma->ov_mutex);
@@ -264,6 +288,17 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	ret = panel_next_on(pdev);
 
 	mipi_dsi_op_mode_config(mipi->mode);
+#if defined(CONFIG_MACH_MSM8960_MAGNUS)|| defined(CONFIG_MACH_MSM8960_SIRIUSLTE)|| defined(CONFIG_MACH_MSM8960_VEGAPVW)
+	if (mipi->force_clk_lane_hs) {
+		u32 tmp;
+
+		tmp = MIPI_INP(MIPI_DSI_BASE + 0xA8);
+		tmp |= (1<<28);
+		MIPI_OUTP(MIPI_DSI_BASE + 0xA8, tmp);
+		wmb();
+		printk("[MIPI: shinbrad High speed Clk Set .................................................]\n");
+	}
+#endif
 
 	if (mfd->panel_info.type == MIPI_CMD_PANEL) {
 		if (pinfo->lcd.vsync_enable) {
@@ -329,6 +364,12 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	return ret;
 }
 
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+static int mipi_dsi_early_off(struct platform_device *pdev)
+{
+       return panel_next_early_off(pdev);
+}
+#endif
 
 static int mipi_dsi_resource_initialized;
 
@@ -476,6 +517,9 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	pdata = mdp_dev->dev.platform_data;
 	pdata->on = mipi_dsi_on;
 	pdata->off = mipi_dsi_off;
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+	pdata->early_off = mipi_dsi_early_off;
+#endif
 	pdata->next = pdev;
 
 	/*

@@ -701,6 +701,11 @@ void l2cap_send_cmd(struct l2cap_conn *conn, u8 ident, u8 code, u16 len, void *d
 	if (!skb)
 		return;
 
+	//20121017 P12116_BT_SYSTEM stability_test_crash_fix +++
+	if (conn->hcon == NULL || conn->hcon->hdev == NULL)
+		return;
+	//20121017 P12116_BT_SYSTEM stability_test_crash_fix ---
+
 	if (lmp_no_flush_capable(conn->hcon->hdev))
 		flags = ACL_START_NO_FLUSH;
 	else
@@ -796,8 +801,11 @@ void l2cap_send_disconn_req(struct l2cap_conn *conn, struct sock *sk, int err)
 {
 	struct l2cap_disconn_req req;
 
-	if (!conn)
+	//20121017 P12116_BT_SYSTEM stability issue QCT patch ++++
+	//if (!conn)
+	if (!conn || !conn->hcon) 
 		return;
+	//20121017 P12116_BT_SYSTEM stability issue QCT patch ++++
 
 	sk->sk_send_head = NULL;
 	skb_queue_purge(TX_QUEUE(sk));

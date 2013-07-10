@@ -31,6 +31,7 @@ enum msm_cam_flash_stat{
 	MSM_CAM_FLASH_ON,
 };
 
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE) || defined(CONFIG_MACH_MSM8960_MAGNUS)
 static struct i2c_client *sc628a_client;
 
 static int32_t flash_i2c_txdata(struct i2c_client *client,
@@ -151,6 +152,125 @@ static struct i2c_driver tps61310_i2c_driver = {
 		.name = "tps61310",
 	},
 };
+
+#elif defined(CONFIG_MACH_MSM8960_VEGAPVW)
+#ifdef CONFIG_PANTECH_CAMERA_FLASH_TPS61050
+static struct i2c_client *tps61050_client;
+
+static const struct i2c_device_id tps61050_i2c_id[] = {
+	{ "tps61050_flash", 0},
+	{ },
+};
+
+static int32_t tps61050_i2c_txdata(unsigned short saddr,
+		unsigned char *txdata, int length)
+{
+	struct i2c_msg msg[] = {
+		{
+			.addr = saddr,
+			.flags = 0,
+			.len = length,
+			.buf = txdata,
+		},
+	};
+	if (i2c_transfer(tps61050_client->adapter, msg, 1) < 0) {
+		CDBG("tps61050_i2c_txdata faild 0x%x\n", saddr);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static int32_t tps61050_i2c_write_b_flash(uint8_t waddr, uint8_t bdata)
+{
+	int32_t rc = -EFAULT;
+	unsigned char buf[2];
+	if (!tps61050_client)
+		return  -ENOTSUPP;
+
+	memset(buf, 0, sizeof(buf));
+	buf[0] = waddr;
+	buf[1] = bdata;
+
+	rc = tps61050_i2c_txdata(tps61050_client->addr>>1, buf, 2);
+	if (rc < 0) {
+		CDBG("i2c_write_b failed, addr = 0x%x, val = 0x%x!\n",
+				waddr, bdata);
+	}
+	usleep_range(4000, 5000);
+
+	return rc;
+}
+
+static int tps61050_i2c_probe(struct i2c_client *client,
+	const struct i2c_device_id *id)
+{
+	int rc = 0;
+	CDBG("%s start\n",__func__);
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		rc = -ENOTSUPP;
+		goto probe_failure;
+	}
+#if 0
+	tps61050_sensorw = kzalloc(sizeof(struct tps61050_work), GFP_KERNEL);
+	if (!tps61050_sensorw) {
+		rc = -ENOMEM;
+		goto probe_failure;
+	}
+
+	i2c_set_clientdata(client, tps61050_sensorw);
+	tps61050_init_client(client);
+#endif	
+	tps61050_client = client;
+	//tps61050_sensor_i2c_client.client = client;
+
+	CDBG("tps61050_probe succeeded!\n");
+
+	return 0;
+
+probe_failure:
+#if 0	
+	kfree(tps61050_sensorw);
+	tps61050_sensorw = NULL;
+#endif	
+	printk("tps61050_probe failed!\n");
+	return rc;
+}
+
+
+
+static struct i2c_driver tps61050_i2c_driver = {
+	.id_table = tps61050_i2c_id,
+	.probe  = tps61050_i2c_probe,
+	.remove = __exit_p(tps61050_i2c_remove),
+	.driver = {
+		.name = "tps61050_flash",
+	},	
+};
+
+static int32_t tps61050_init_i2c(void)
+{
+	int32_t rc = 0;
+
+	CDBG("%s start\n",__func__);
+
+	rc = i2c_add_driver(&tps61050_i2c_driver);
+	CDBG("%s tps61050_i2c_driver rc = %d\n",__func__, rc);
+	if (IS_ERR_VALUE(rc))
+		goto init_i2c_fail;
+
+	CDBG("%s end\n",__func__);
+	return 0;
+
+init_i2c_fail:
+	printk("%s failed! (%d)\n", __func__, rc);
+	i2c_del_driver(&tps61050_i2c_driver);
+	tps61050_client = NULL;
+    
+	return rc;
+}
+#endif //tps61050
+#endif
 
 static int config_flash_gpio_table(enum msm_cam_flash_stat stat,
 			struct msm_camera_sensor_strobe_flash_data *sfdata)
@@ -321,6 +441,7 @@ int msm_camera_flash_external(
 {
 	int rc = 0;
 
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE) || defined(CONFIG_MACH_MSM8960_MAGNUS)
 	switch (led_state) {
 
 	case MSM_CAMERA_LED_INIT:
@@ -463,6 +584,119 @@ error:
 		rc = -EFAULT;
 		break;
 	}
+
+#elif defined(CONFIG_MACH_MSM8960_VEGAPVW)
+#ifdef CONFIG_PANTECH_CAMERA_FLASH_TPS61050
+	switch (led_state) {
+
+	case MSM_CAMERA_LED_INIT:
+        printk("%s MSM_CAMERA_LED_INIT\n",__func__);
+        if(!tps61050_client) {
+            printk("%s tps61050_client check %d\n",__func__,__LINE__);
+    		rc = tps61050_init_i2c();
+			if(rc) {
+				printk("%s: tps61050_init_i2c fail", __func__);
+				return rc;
+    		}
+        }
+        if(tps61050_client) {
+            printk("%s tps61050_client check %d\n",__func__,__LINE__);
+    		rc = gpio_request(2, "FLASH_CNTL_EN");
+        }
+		if (!rc) {
+		    printk("%s:%d INIT_MODE \n", __func__, __LINE__);
+		    gpio_direction_output(2, 1);
+		} else {
+			printk("%s: gpio FLASH_CNTL_EN request fail", __func__);
+			goto err1;
+		}
+		mdelay(1);
+        if(tps61050_client) {
+            printk("%s tps61050_client check %d\n",__func__,__LINE__);
+    		rc = gpio_request(3, "FLASH_NOW");
+        }
+		if (!rc) {
+		    printk("%s:%d FLASH_NOW INIT_MODE \n", __func__, __LINE__);
+		    gpio_direction_output(3, 0);
+		} else {
+			printk("%s: gpio FLASH_NOW request fail", __func__);
+			goto err1;
+		}
+		mdelay(1);
+        if(tps61050_client) {
+            printk("%s tps61050_client check %d\n",__func__,__LINE__);
+    		tps61050_i2c_write_b_flash(0x02, 0x00);
+    		tps61050_i2c_write_b_flash(0x03, 0xD1); // 557.6ms
+        }
+		mdelay(1);
+		return rc;
+
+err1:
+		printk("%s: MSM_CAMERA_LED_INIT fail", __func__);
+        if(tps61050_client) {
+            printk("%s tps61050_client check %d\n",__func__,__LINE__);
+    		i2c_del_driver(&tps61050_i2c_driver);
+    		tps61050_client = NULL;
+        }
+		break;
+
+	case MSM_CAMERA_LED_RELEASE:
+		printk("%s MSM_CAMERA_LED_RELEASE\n",__func__);
+        if(tps61050_client) {
+            printk("%s tps61050_client check %d\n",__func__,__LINE__);
+    		gpio_set_value_cansleep(3, 0);//gpio_set_value_cansleep(3, 0);
+    		gpio_free(3);
+            mdelay(1);            
+    		gpio_set_value_cansleep(2, 0);//
+    		gpio_free(2);
+            mdelay(1);
+        	i2c_del_driver(&tps61050_i2c_driver);
+		    tps61050_client = NULL;
+        }
+		break;
+
+	case MSM_CAMERA_LED_OFF:
+		printk("%s MSM_CAMERA_LED_OFF\n",__func__);
+        if(tps61050_client) {
+            printk("%s tps61050_client check %d\n",__func__,__LINE__);
+			gpio_direction_output(3, 0);
+            tps61050_i2c_write_b_flash(0x00, 0x15); // 1016.8ms
+            tps61050_i2c_write_b_flash(0x01, 0x06);//flash 500mA
+        }              
+		//gpio_set_value_cansleep(2, 0);
+		//gpio_set_value_cansleep(3, 0);
+		break;
+
+	case MSM_CAMERA_LED_LOW:
+		printk("%s MSM_CAMERA_LED_LOW\n",__func__);
+		//gpio_set_value_cansleep(2, 1);        
+    	//gpio_set_value_cansleep(3, 0);
+        if(tps61050_client) {
+            printk("%s tps61050_client check %d\n",__func__,__LINE__);
+			gpio_direction_output(3, 0);
+    		tps61050_i2c_write_b_flash(0x00, 0x55);
+        }        
+		break;
+
+	case MSM_CAMERA_LED_HIGH:
+		printk("%s MSM_CAMERA_LED_HIGH\n",__func__);
+		//gpio_set_value_cansleep(2, 1);        
+		//gpio_set_value_cansleep(3, 1);
+        if(tps61050_client) {		
+            printk("%s tps61050_client check %d\n",__func__,__LINE__);
+            //tps61050_i2c_write_b_flash(0x01, 0x86); //900mA
+            tps61050_i2c_write_b_flash(0x01, 0x85); //700mA
+            gpio_direction_output(3, 1);
+            mdelay(100);//for snapshot safe
+        }
+		break;
+
+	default:
+		rc = -EFAULT;
+		break;
+	}
+#endif	//tps61050
+#endif  //CONFIG_PANTECH_CAMERA_FLASH
 	return rc;
 }
 

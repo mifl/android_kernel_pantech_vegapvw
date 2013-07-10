@@ -40,6 +40,9 @@ static struct afe_ctl this_afe;
 static struct acdb_cal_block afe_cal_addr[MAX_AUDPROC_TYPES];
 static int pcm_afe_instance[2];
 static int proxy_afe_instance[2];
+#if defined(CONFIG_PANTECH_SND) //Qualcomm CR 446504, BT LPA no sound issue after camera burst mode shooting
+bool afe_close_done[2] = {true, true};
+#endif
 
 #define TIMEOUT_MS 1000
 #define Q6AFE_MAX_VOLUME 0x3FFF
@@ -462,8 +465,22 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		pr_debug("%s: before incrementing proxy_afe_instance %d"\
 				"port_id %d\n", __func__,
 				proxy_afe_instance[port_id & 0x1], port_id);
+#if !defined(CONFIG_PANTECH_SND) //Qualcomm CR 446504, BT LPA no sound issue after camera burst mode shooting
 		port_id = VIRTUAL_ID_TO_PORTID(port_id);
+#endif
+#if defined(CONFIG_PANTECH_SND) //Qualcomm CR 446504, BT LPA no sound issue after camera burst mode shooting
+		if (!afe_close_done[port_id & 0x1]) {
+			/*close pcm dai corresponding to the proxy dai*/
+			afe_close(port_id - 0x10);
+			pcm_afe_instance[port_id & 0x1]++;
+			pr_debug("%s: reconfigure afe port again\n", __func__);
+		}
+#endif
 		proxy_afe_instance[port_id & 0x1]++;
+#if defined(CONFIG_PANTECH_SND) //Qualcomm CR 446504, BT LPA no sound issue after camera burst mode shooting
+		afe_close_done[port_id & 0x1] = false;
+		port_id = VIRTUAL_ID_TO_PORTID(port_id);
+#endif
 	}
 
 	ret = afe_q6_interface_prepare();
@@ -1723,6 +1740,10 @@ int afe_close(int port_id)
 		if (!(pcm_afe_instance[port_id & 0x1] == 0 &&
 			proxy_afe_instance[port_id & 0x1] == 0))
 			return 0;
+#if defined(CONFIG_PANTECH_SND) //Qualcomm CR 446504, BT LPA no sound issue after camera burst mode shooting
+		else
+			afe_close_done[port_id & 0x1] = true;
+#endif
 	}
 
 	if ((port_id == RT_PROXY_DAI_002_RX) ||
@@ -1734,6 +1755,10 @@ int afe_close(int port_id)
 		if (!(pcm_afe_instance[port_id & 0x1] == 0 &&
 			proxy_afe_instance[port_id & 0x1] == 0))
 			return 0;
+#if defined(CONFIG_PANTECH_SND) //Qualcomm CR 446504, BT LPA no sound issue after camera burst mode shooting
+		else
+			afe_close_done[port_id & 0x1] = true;
+#endif
 	}
 
 	port_id = afe_convert_virtual_to_portid(port_id);

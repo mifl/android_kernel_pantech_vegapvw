@@ -194,8 +194,11 @@ void clock_debug_print_enabled(void)
 	unsigned i;
 	int cnt = 0;
 
+// P14533. to check enabled clocks after power collapse
+#if 0
 	if (likely(!debug_suspend))
 		return;
+#endif
 
 	pr_info("Enabled clocks:\n");
 	for (i = 0; i < num_msm_clocks; i++)

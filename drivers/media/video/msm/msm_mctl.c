@@ -552,6 +552,18 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 			goto act_power_up_failed;
 		}
 
+#ifdef CONFIG_PANTECH_CAMERA // Case:00871739 : bug fix csiphy reset - jjhwang 2012.06.25.
+                if (p_mctl->csid_sdev) {
+			rc = v4l2_subdev_call(p_mctl->csid_sdev, core, ioctl,
+				VIDIOC_MSM_CSID_INIT, &csid_version);
+			if (rc < 0) {
+				pr_err("%s: csid initialization failed %d\n",
+					__func__, rc);
+				goto csid_init_failed;
+			}
+			csi_info.is_csic = 0;
+                }
+#endif
 		if (p_mctl->csiphy_sdev) {
 			rc = v4l2_subdev_call(p_mctl->csiphy_sdev, core, ioctl,
 				VIDIOC_MSM_CSIPHY_INIT, NULL);
@@ -561,7 +573,7 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 				goto csiphy_init_failed;
 			}
 		}
-
+#ifndef CONFIG_PANTECH_CAMERA // Case:00871739 : bug fix csiphy reset - jjhwang 2012.06.25.
 		if (p_mctl->csid_sdev) {
 			rc = v4l2_subdev_call(p_mctl->csid_sdev, core, ioctl,
 				VIDIOC_MSM_CSID_INIT, &csid_version);
@@ -572,6 +584,7 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 			}
 			csi_info.is_csic = 0;
 		}
+#endif
 
 		if (p_mctl->csic_sdev) {
 			rc = v4l2_subdev_call(p_mctl->csic_sdev, core, ioctl,
@@ -707,15 +720,22 @@ static int msm_mctl_release(struct msm_cam_media_controller *p_mctl)
 		p_mctl->isp_sdev->isp_release(p_mctl,
 			p_mctl->isp_sdev->sd);
 
+#ifndef CONFIG_PANTECH_CAMERA // Case:00871739 : bug fix csiphy reset - jjhwang 2012.06.25.
 	if (p_mctl->csid_sdev) {
 		v4l2_subdev_call(p_mctl->csid_sdev, core, ioctl,
 			VIDIOC_MSM_CSID_RELEASE, NULL);
 	}
-
+#endif
 	if (p_mctl->csiphy_sdev) {
 		v4l2_subdev_call(p_mctl->csiphy_sdev, core, ioctl,
 			VIDIOC_MSM_CSIPHY_RELEASE, NULL);
 	}
+#ifdef CONFIG_PANTECH_CAMERA // Case:00871739 : bug fix csiphy reset - jjhwang 2012.06.25.
+        if (p_mctl->csid_sdev) {
+		v4l2_subdev_call(p_mctl->csid_sdev, core, ioctl,
+			VIDIOC_MSM_CSID_RELEASE, NULL);
+	}
+#endif
 
 	pm_qos_update_request(&p_mctl->pm_qos_req_list,
 			PM_QOS_DEFAULT_VALUE);

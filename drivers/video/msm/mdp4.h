@@ -45,6 +45,9 @@ extern u32 dbg_force_ov1_blt;
 #define CS_CONTROLLER_0 0x0707ffff
 #define CS_CONTROLLER_1 0x03073f3f
 
+/* PLM 1430  kangms p14974 130215 */
+#define CONFIG_QUALCOMM_BUG_FIX_BLENDING
+
 enum {
 	OVERLAY_PERF_LEVEL1 = 1,
 	OVERLAY_PERF_LEVEL2,
@@ -767,6 +770,9 @@ int mdp4_dsi_cmd_on(struct platform_device *pdev);
 int mdp4_dsi_cmd_off(struct platform_device *pdev);
 int mdp4_dsi_video_off(struct platform_device *pdev);
 int mdp4_dsi_video_on(struct platform_device *pdev);
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+int mdp4_dsi_video_splash_done(void);
+#endif
 void mdp4_primary_vsync_dsi_video(void);
 void mdp4_dsi_cmd_base_swap(int cndx, struct mdp4_overlay_pipe *pipe);
 void mdp4_dsi_cmd_wait4vsync(int cndx, long long *vtime);
@@ -824,6 +830,7 @@ static inline void mdp4_dsi_video_pipe_queue(int cndx,
 			struct mdp4_overlay_pipe *pipe)
 {
 }
+#ifdef CONFIG_QUALCOMM_BUG_FIX_MHL_FLICKER
 static inline int mdp4_dsi_video_pipe_commit(int cndx, int wait)
 {
 	return 0;
@@ -832,6 +839,7 @@ static inline int mdp4_dsi_cmd_pipe_commit(int cndx, int wait)
 {
 	return 0;
 }
+#endif
 static inline void mdp4_dsi_cmd_vsync_ctrl(struct fb_info *info,
 					int enable)
 {
@@ -845,6 +853,13 @@ static inline void mdp4_overlay_dsi_video_start(void)
 {
 	/* empty */
 }
+
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+static int mdp4_dsi_video_splash_done(void)
+{
+}
+#endif
+
 #ifdef CONFIG_FB_MSM_MDP40
 static inline void mdp_dsi_cmd_overlay_suspend(struct msm_fb_data_type *mfd)
 {
@@ -939,4 +954,11 @@ int mdp4_overlay_mdp_pipe_req(struct mdp4_overlay_pipe *pipe,
 int mdp4_overlay_mdp_perf_req(struct msm_fb_data_type *mfd,
 			      struct mdp4_overlay_pipe *plist);
 void mdp4_overlay_mdp_perf_upd(struct msm_fb_data_type *mfd, int flag);
+
+#if defined(CONFIG_QUALCOMM_BUG_FIX_BLENDING)
+int mdp4_update_base_blend(struct msm_fb_data_type *mfd,
+				struct mdp_blend_cfg *mdp_blend_cfg);
+u32 mdp4_get_mixer_num(u32 panel_type);
+#endif
+
 #endif /* MDP_H */

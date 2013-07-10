@@ -88,6 +88,9 @@ static int msmsdcc_prep_xfer(struct msmsdcc_host *host, struct mmc_data
 static u64 dma_mask = DMA_BIT_MASK(32);
 static unsigned int msmsdcc_pwrsave = 1;
 
+#ifdef CONFIG_PANTECH_MMC
+static unsigned int mmc_err_cmd = -1;
+#endif
 static struct mmc_command dummy52cmd;
 static struct mmc_request dummy52mrq = {
 	.cmd = &dummy52cmd,
@@ -121,6 +124,10 @@ static const u32 tuning_block_128[] = {
 	0xDDFFFFFF, 0xDDFFFFFF, 0xFFFFFFDD, 0xFFFFFFBB,
 	0xFFFFBBBB, 0xFFFF77FF, 0xFF7777FF, 0xEEDDBB77
 };
+
+#ifdef CONFIG_PANTECH_MMC  // UX Performance 20120414_nari_LS1
+static unsigned int msmsdcc_slot_status(struct msmsdcc_host *host);
+#endif /* CONFIG_PANTECH_MMC */
 
 #if IRQ_DEBUG == 1
 static char *irq_status_bits[] = { "cmdcrcfail", "datcrcfail", "cmdtimeout",
@@ -1318,6 +1325,12 @@ msmsdcc_data_err(struct msmsdcc_host *host, struct mmc_data *data,
 				 + MCI_TEST_INPUT) & 0x2) ? 1 : 0);
 			data->error = -ETIMEDOUT;
 			msmsdcc_dump_sdcc_state(host);
+#ifdef CONFIG_PANTECH_MMC
+            if(host->pdev_id == 3){
+                mmc_err_cmd = data->mrq->cmd->opcode;
+                pr_debug("%s : mmc_err_cmd = %d\n", mmc_hostname(host->mmc), mmc_err_cmd);
+		}
+#endif
 		}
 	} else if (status & MCI_RXOVERRUN) {
 		pr_err("%s: RX overrun\n", mmc_hostname(host->mmc));
@@ -1846,6 +1859,14 @@ msmsdcc_irq(int irq, void *dev_id)
 		}
 
 		if (host->curr.data) {
+#ifdef CONFIG_PANTECH_MMC
+      if(data && data->mrq && data->mrq->cmd) {   //ls1 : factory reset error fix
+           if(host->pdev_id == 3 && mmc_err_cmd == data->mrq->cmd->opcode){
+               mmc_err_cmd = -1;
+              pr_debug("%s: mmc_err_cmd init\n", mmc_hostname(host->mmc));
+           }
+      }  //ls1 : factory reset error fix
+#endif
 			/* Check for data errors */
 			if (status & (MCI_DATACRCFAIL|MCI_DATATIMEOUT|
 				      MCI_TXUNDERRUN|MCI_RXOVERRUN)) {
@@ -2745,11 +2766,46 @@ static u32 msmsdcc_setup_pwr(struct msmsdcc_host *host, struct mmc_ios *ios)
 	u32 pwr = 0;
 	int ret = 0;
 	struct mmc_host *mmc = host->mmc;
-
-	if (host->plat->translate_vdd && !host->sdio_gpio_lpm)
+#ifdef CONFIG_PANTECH_MMC  // 20120414_LS1
+    unsigned int slot_status;
+#endif /* CONFIG_PANTECH_MMC */
+	if (host->plat->translate_vdd && !host->sdio_gpio_lpm) {
+#ifdef CONFIG_PANTECH_MMC  // 20120414_LS1
+            if(host->pdev_id == 3 && ios->power_mode == MMC_POWER_OFF){
+                slot_status = msmsdcc_slot_status(host);
+                if(mmc->bus_ops != NULL && slot_status && mmc_err_cmd == -1){
+                    ret = host->plat->translate_vdd(mmc_dev(mmc), 1); /* always on sdcc power */
+                } else {
+	            ret = host->plat->translate_vdd(mmc_dev(mmc), ios->vdd);
+                    /* case sdcc_inserted & normal status */
+                if(!mmc->bus_ops && slot_status)
+                    msleep(500);
+                }
+            } else {
+               ret = host->plat->translate_vdd(mmc_dev(mmc), ios->vdd);    
+            }
+#else
 		ret = host->plat->translate_vdd(mmc_dev(mmc), ios->vdd);
-	else if (!host->plat->translate_vdd && !host->sdio_gpio_lpm)
+#endif /* CONFIG_PANTECH_MMC */
+	} else if (!host->plat->translate_vdd && !host->sdio_gpio_lpm) {
+#ifdef CONFIG_PANTECH_MMC  // 20120414_LS1
+            if(host->pdev_id == 3 && ios->power_mode == MMC_POWER_OFF){
+                slot_status = msmsdcc_slot_status(host);
+                if(mmc->bus_ops != NULL && slot_status && mmc_err_cmd == -1){
+                    ret = msmsdcc_setup_vreg(host, 1, true); /* always on sdcc power */
+                } else {
 		ret = msmsdcc_setup_vreg(host, !!ios->vdd, false);
+                    /* case sdcc_inserted & normal status */
+                if(!mmc->bus_ops && slot_status)
+                    msleep(500);
+                }
+            } else {
+               ret = msmsdcc_setup_vreg(host, !!ios->vdd, false);    
+            }
+#else
+		ret = msmsdcc_setup_vreg(host, !!ios->vdd, false);
+#endif /* CONFIG_PANTECH_MMC*/
+    }
 
 	if (ret) {
 		pr_err("%s: Failed to setup voltage regulators\n",
@@ -4842,7 +4898,7 @@ static void msmsdcc_req_tout_timer_hdlr(unsigned long data)
 		if (!mrq->cmd->bkops_busy) {
 			pr_info("%s: CMD%d: Request timeout\n",
 				mmc_hostname(host->mmc), mrq->cmd->opcode);
-			msmsdcc_dump_sdcc_state(host);
+		msmsdcc_dump_sdcc_state(host);
 		}
 
 		if (!mrq->cmd->error)

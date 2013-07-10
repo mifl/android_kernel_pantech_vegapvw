@@ -30,6 +30,10 @@ static void led_stop_software_blink(struct led_classdev *led_cdev)
 	del_timer_sync(&led_cdev->blink_timer);
 	led_cdev->blink_delay_on = 0;
 	led_cdev->blink_delay_off = 0;
+
+//++ p11309 - 2012.11.21 for re-light
+	led_set_brightness(led_cdev, led_cdev->last_brightness);
+//-- p11309
 }
 
 static void led_set_software_blink(struct led_classdev *led_cdev,
@@ -72,11 +76,20 @@ void led_blink_set(struct led_classdev *led_cdev,
 		   unsigned long *delay_on,
 		   unsigned long *delay_off)
 {
+//++ p11309 - 2012.11.21 for PMIC LPG Blinking
+	int led_pcts = 0;
+//-- p11309
+
 	del_timer_sync(&led_cdev->blink_timer);
 
+//++ p11309 - 2012.11.21 for PMIC LPG Blinking
+	led_pcts = (led_cdev->brightness*100)/led_cdev->max_brightness;
 	if (led_cdev->blink_set &&
-	    !led_cdev->blink_set(led_cdev, delay_on, delay_off))
+	    !led_cdev->blink_set(led_cdev, delay_on, delay_off, led_pcts))
+// 	if (led_cdev->blink_set &&
+// 		!led_cdev->blink_set(led_cdev, delay_on, delay_off))
 		return;
+//-- p11309
 
 	/* blink with 1 Hz as default if nothing specified */
 	if (!*delay_on && !*delay_off)

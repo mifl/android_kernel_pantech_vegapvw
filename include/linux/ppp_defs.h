@@ -12,6 +12,10 @@
 #ifndef _PPP_DEFS_H_
 #define _PPP_DEFS_H_
 
+//<--FEATURE_P_VZW_DS_VPN_FIX
+#define PPP_MTU 1500  
+//-->FEATURE_P_VZW_DS_VPN_FIX
+
 /*
  * The basic PPP frame.
  */

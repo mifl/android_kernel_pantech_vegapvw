@@ -53,15 +53,43 @@ extern struct platform_device msm_device_uart_dm3;
 extern struct platform_device msm_device_uart_dm12;
 extern struct platform_device *msm_device_uart_gsbi9;
 extern struct platform_device msm_device_uart_dm6;
+#ifndef CONFIG_CXD2235AGC_NFC_FELICA
 extern struct platform_device msm_device_uart_dm9;
+#endif
 
+#if !defined(CONFIG_OV8820_ACT)
 extern struct platform_device msm8960_device_uart_gsbi2;
+#endif
+
+#ifdef CONFIG_IRDA_UART_GPIO
+extern struct platform_device msm8960_device_uart_gsbi4;
+#endif
 extern struct platform_device msm8960_device_uart_gsbi5;
 extern struct platform_device msm8960_device_uart_gsbi8;
+#ifdef CONFIG_CXD2235AGC_NFC_FELICA
+extern struct platform_device msm8960_device_uart_gsbi9;
+#endif
 extern struct platform_device msm8960_device_ssbi_pmic;
+#if (defined(CONFIG_MACH_MSM8960_SIRIUSLTE) && defined(CONFIG_PANTECH_PMIC_MAX17058)) || ((defined(CONFIG_PANTECH_CAMERA_FLASH)) || (defined(CONFIG_MACH_MSM8960_VEGAPVW) && defined(CONFIG_PANTECH_PMIC_MAX17058)))
+extern struct platform_device msm8960_device_qup_i2c_gsbi1;
+#endif
+
+//#ifdef CONFIG_PANTECH_CAMERA //AF
+#if (defined(CONFIG_OV8820_ACT) && defined(CONFIG_MACH_MSM8960_VEGAPVW))
+extern struct platform_device msm8960_device_qup_i2c_gsbi2;
+#endif
+
 extern struct platform_device msm8960_device_qup_i2c_gsbi3;
 extern struct platform_device msm8960_device_qup_i2c_gsbi4;
+#if defined(CONFIG_MACH_MSM8960_SIRIUSLTE) //#ifdef SKY_SND_AK7811 //p15994
+extern struct platform_device msm8960_device_qup_i2c_gsbi5;
+#endif
+#ifdef CONFIG_SKY_DMB_I2C_HW
+extern struct platform_device msm8960_device_qup_i2c_gsbi8;
+#endif
+#if defined(CONFIG_PANTECH_PMIC_MAX17058) || defined(T_MAGNUS)
 extern struct platform_device msm8960_device_qup_i2c_gsbi9;
+#endif
 extern struct platform_device msm8960_device_qup_i2c_gsbi10;
 extern struct platform_device msm8960_device_qup_i2c_gsbi12;
 extern struct platform_device msm8960_device_qup_spi_gsbi1;

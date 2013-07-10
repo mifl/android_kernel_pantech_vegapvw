@@ -117,6 +117,9 @@ enum dsi_trigger_type {
 #define DSI_INTR_CMD_DMA_DONE_MASK	BIT(1)
 #define DSI_INTR_CMD_DMA_DONE		BIT(0)
 
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+#define DSI_VIDEO_TERM	BIT(16)
+#endif
 #define DSI_MDP_TERM	BIT(8)
 #define DSI_CMD_TERM	BIT(0)
 
@@ -379,5 +382,7 @@ void mipi_dsi_cmd_mdp_busy(void);
 #ifdef CONFIG_FB_MSM_MDP303
 void update_lane_config(struct msm_panel_info *pinfo);
 #endif
-
+#ifdef CONFIG_F_SKYDISP_FIX_DMA_TX_FAIL
+void mdp4_dsi_video_wait4dmap_for_dsi(int cndx);
+#endif
 #endif /* MIPI_DSI_H */

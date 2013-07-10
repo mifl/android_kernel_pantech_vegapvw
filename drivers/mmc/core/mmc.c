@@ -96,6 +96,7 @@ static int mmc_decode_cid(struct mmc_card *card)
 		card->cid.prod_name[3]	= UNSTUFF_BITS(resp, 72, 8);
 		card->cid.prod_name[4]	= UNSTUFF_BITS(resp, 64, 8);
 		card->cid.prod_name[5]	= UNSTUFF_BITS(resp, 56, 8);
+		card->cid.fwrev     = UNSTUFF_BITS(resp, 48, 8);
 		card->cid.serial	= UNSTUFF_BITS(resp, 16, 32);
 		card->cid.month		= UNSTUFF_BITS(resp, 12, 4);
 		card->cid.year		= UNSTUFF_BITS(resp, 8, 4) + 1997;
@@ -463,7 +464,10 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	}
 
 	if (card->ext_csd.rev >= 5) {
-		/* check whether the eMMC card supports BKOPS */
+/* When version of Samsung eMMC is 18(0x12) and enable BKOPS, eMMS is dead.
+** This problem is fixed next eMMC version. */
+#if 0
+		/* check whether the eMMC card support BKOPS */
 		if (ext_csd[EXT_CSD_BKOPS_SUPPORT] & 0x1) {
 			card->ext_csd.bkops = 1;
 			card->ext_csd.bkops_en = ext_csd[EXT_CSD_BKOPS_EN];
@@ -483,6 +487,7 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 				pr_info("%s: BKOPS_EN bit is not set\n",
 					mmc_hostname(card->host));
 		}
+#endif
 
 		/* check whether the eMMC card supports HPI */
 		if (ext_csd[EXT_CSD_HPI_FEATURES] & 0x1) {
@@ -1334,7 +1339,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			if (card->bkops_info.host_delay_ms)
 				card->bkops_info.delay_ms =
 					card->bkops_info.host_delay_ms;
-		}
+	}
 	}
 
 	if (!oldcard)

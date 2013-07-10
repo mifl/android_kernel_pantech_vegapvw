@@ -2138,6 +2138,11 @@ static inline struct hci_conn *hci_low_sent(struct hci_dev *hdev, __u8 type, int
 	list_for_each(p, &h->list) {
 		struct hci_conn *c;
 		c = list_entry(p, struct hci_conn, list);
+	
+		//20120912 P12116_BT_SYSTEM QCT_PATCH ++++
+        if (c == NULL)
+	        break;
+		//20120912 P12116_BT_SYSTEM QCT_PATCH ----	
 
 		if (c->type != type || skb_queue_empty(&c->data_q))
 			continue;

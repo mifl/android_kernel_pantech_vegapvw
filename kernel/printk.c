@@ -48,6 +48,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/printk.h>
 
+/* p14974 PLM1106 fix halt during boot animation */
+#define FEATURE_QCOM_BUG_FIX_SURFACEFLINGER_PENDING
+
 /*
  * Architectures can override it:
  */
@@ -309,6 +312,13 @@ void log_buf_clear(void)
 {
 	logged_chars = 0;
 }
+
+#ifdef CONFIG_PANTECH_ERR_CRASH_LOGGING
+void* get_log_buf_addr(void)
+{
+	return (void*)log_buf;
+}
+#endif
 
 /*
  * Copy a range of characters from the log buffer.
@@ -1388,7 +1398,12 @@ again:
 	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
 
 	if (retry && console_trylock())
+	{
+#ifdef FEATURE_QCOM_BUG_FIX_SURFACEFLINGER_PENDING
+		retry = 0;
+#endif
 		goto again;
+	}
 
 	if (wake_klogd)
 		wake_up_klogd();

@@ -1770,14 +1770,22 @@ static void ul_wakeup(void)
 	INIT_COMPLETION(ul_wakeup_ack_completion);
 	power_vote(1);
 	bam_dmux_log("%s waiting for wakeup ack\n", __func__);
+#ifdef FEATURE_P_VZW_DS_BAM_ISSUE_TRACKING_3HZ
+	ret = wait_for_completion_timeout(&ul_wakeup_ack_completion, 3*HZ); //20130401_yunsik_DATA, HZ -> 3*HZ, porting from PremiaV ICS
+#else
 	ret = wait_for_completion_timeout(&ul_wakeup_ack_completion, HZ);
+#endif
 	if (unlikely(ret == 0) && ssrestart_check()) {
 		mutex_unlock(&wakeup_lock);
 		bam_dmux_log("%s timeout wakeup ack\n", __func__);
 		return;
 	}
 	bam_dmux_log("%s waiting completion\n", __func__);
+#ifdef FEATURE_P_VZW_DS_BAM_ISSUE_TRACKING_3HZ
+	ret = wait_for_completion_timeout(&bam_connection_completion, 3*HZ); //20130401_yunsik_DATA, HZ -> 3*HZ, porting from PremiaV ICS
+#else
 	ret = wait_for_completion_timeout(&bam_connection_completion, HZ);
+#endif
 	if (unlikely(ret == 0) && ssrestart_check()) {
 		mutex_unlock(&wakeup_lock);
 		bam_dmux_log("%s timeout power on\n", __func__);

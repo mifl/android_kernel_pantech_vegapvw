@@ -569,7 +569,7 @@ int res_trk_update_bus_perf_level(struct vcd_dev_ctxt *dev_ctxt, u32 perf_level)
 	else if ((!turbo_supported || !turbo_enabled) && bus_clk_index == 3) {
 		if (!turbo_supported)
 			VCDRES_MSG_MED("Warning: Turbo mode not supported "\
-					" falling back to 1080p bus\n");
+				" falling back to 1080p bus\n");
 		bus_clk_index = 2;
 	}
 
@@ -634,10 +634,10 @@ u32 res_trk_set_perf_level(u32 req_perf_lvl, u32 *pn_set_perf_lvl,
 	}
 
 	if ((!turbo_supported || !dev_ctxt->turbo_mode_set) &&
-		 *pn_set_perf_lvl == RESTRK_1080P_TURBO_PERF_LEVEL) {
+		*pn_set_perf_lvl == RESTRK_1080P_TURBO_PERF_LEVEL) {
 		if (!turbo_supported)
 			VCDRES_MSG_ERROR("Warning: Turbo mode not supported "\
-					" falling back to 1080p clocks\n");
+				" falling back to 1080p clocks\n");
 		vidc_freq = vidc_clk_table[2];
 		*pn_set_perf_lvl = RESTRK_1080P_MAX_PERF_LEVEL;
 	}
@@ -657,7 +657,11 @@ u32 res_trk_set_perf_level(u32 req_perf_lvl, u32 *pn_set_perf_lvl,
 		}
 	}
 #endif
+#if 0 // FEATURE_PANTECH_MMP Codec - release log to debug perfomance level
 	VCDRES_MSG_MED("%s() set perl level : %d", __func__, *pn_set_perf_lvl);
+#else
+       printk(KERN_INFO "\n%s() set perl level : %d\n", __func__, *pn_set_perf_lvl);
+#endif
 	return true;
 }
 
